@@ -45,6 +45,11 @@ export default class ConfLines<Item = unknown> extends Conf<Record<number, Item>
 		} as ConfOptions<Record<number, Item>>);
 	}
 
+	// Write the record as the next line.
+	push(record: Exclude<Item, undefined>): void {
+		this.set(this.size, record);
+	}
+
 	// The records in line order. Conf assigns the object it keeps them in when it writes the whole store, so that is taken as well.
 	override get store(): Item[] {
 		return Object.values(super.store);
