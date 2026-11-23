@@ -34,22 +34,30 @@ const toKey = (key: unknown): unknown => (Number.isSafeInteger(key) && (key as n
 // Migrations keep their version under a named key, which a line cannot hold.
 export type Options<T extends Record<string, any>> = Omit<ConfOptions<T>, 'migrations' | 'beforeEachMigration' | 'projectVersion'>;
 
-// The default store type takes a line index as a number and, for a dot path, as a string.
-export default class ConfLines<T extends Record<string, any> = Record<number | string, unknown>> extends Conf<T> {
-	// `NoInfer` keeps the indexes `defaults` names from becoming the type of the whole store.
-	constructor(options?: Options<NoInfer<T>>) {
+// `Item` is the type of a record. Conf keeps the records in an object keyed by line index.
+export default class ConfLines<Item = unknown> extends Conf<Record<number, Item>> {
+	constructor(options?: Options<Record<number, Item>>) {
 		super({
 			fileExtension: 'jsonl',
 			serialize,
 			deserialize,
 			...options,
-		} as ConfOptions<T>);
+		} as ConfOptions<Record<number, Item>>);
+	}
+
+	// The records in line order. Conf assigns the object it keeps them in when it writes the whole store, so that is taken as well.
+	override get store(): Item[] {
+		return Object.values(super.store);
+	}
+
+	override set store(records: Item[] | Record<number, Item>) {
+		super.store = {...records};
 	}
 
 	// The index of a record is a number, where conf yields the string key of the object it keeps the records in.
-	override * [Symbol.iterator](): IterableIterator<[keyof T, T[keyof T]]> {
+	override * [Symbol.iterator](): IterableIterator<[number, Item]> {
 		for (const [key, record] of super[Symbol.iterator]()) {
-			yield [Number(key) as keyof T, record];
+			yield [Number(key), record];
 		}
 	}
 }
