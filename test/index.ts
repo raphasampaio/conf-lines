@@ -13,7 +13,7 @@ const fileOf = (config: ConfLines<any>): string => fs.readFileSync(config.path, 
 const withRecords = (...names: string[]): ConfLines<Person> => {
 	const config = new ConfLines<Person>({cwd: temporaryDirectory()});
 	for (const name of names) {
-		config.set(config.size, {name});
+		config.push({name});
 	}
 
 	return config;
