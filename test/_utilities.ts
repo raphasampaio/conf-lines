@@ -55,7 +55,7 @@ export const toJsonLines = (data: unknown): string => {
 		.map(([key, value]) => JSON.stringify({[key]: value}))
 		.filter(line => line !== '{}')
 		.map(line => `${line}\n`)
-		.join('');
+		.join('') || '{}\n';
 };
 
 /**

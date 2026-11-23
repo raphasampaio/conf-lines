@@ -541,4 +541,19 @@ describe('the JSON Lines format', () => {
 
 		assert.deepStrictEqual(storeIn(cwd).store, createNullProtoObject({}));
 	});
+
+	// `aes-256-ctr` keeps the length of what it encrypts, so an empty store written as no text would decrypt to no text with any key, and a wrong key would read it as a store.
+	it('writes an empty store as a line, so a wrong `aes-256-ctr` key is still caught', () => {
+		const cwd = createTempDirectory();
+		const conf = storeIn(cwd);
+		conf.set('a', 1);
+		conf.delete('a');
+		assert.strictEqual(fs.readFileSync(conf.path, 'utf8'), '{}\n');
+
+		const encryptedCwd = createTempDirectory();
+		new Conf({cwd: encryptedCwd, encryptionKey: 'right', encryptionAlgorithm: 'aes-256-ctr'}).clear();
+		assert.throws(() => {
+			new Conf({cwd: encryptedCwd, encryptionKey: 'wrong', encryptionAlgorithm: 'aes-256-ctr'});
+		}, {name: 'SyntaxError'});
+	});
 });

@@ -1565,12 +1565,12 @@ export default class Conf<T extends Record<string, any> = Record<string, unknown
 		return Object.fromEntries(entries) as T;
 	};
 
-	// A key whose value JSON writes as nothing, such as a function, is left out, like `JSON.stringify` leaves it out of an object.
+	// A key whose value JSON writes as nothing, such as a function, is left out, like `JSON.stringify` leaves it out of an object. An empty store is written as one line that holds no key rather than as no text at all, since `aes-256-ctr` keeps the length of what it encrypts, and an empty file decrypts to an empty one whatever the key, which would read as a store with a wrong key.
 	#serialize: Serialize<T> = value => Object.entries(value as Record<string, unknown>)
 		.map(([key, item]) => JSON.stringify({[key]: item}))
 		.filter(line => line !== '{}')
 		.map(line => `${line}\n`)
-		.join('');
+		.join('') || '{}\n';
 
 	#validate(store: T): void {
 		if (!this.#validator) {
