@@ -15,6 +15,8 @@ import {
 	readConfigFile,
 	runRegisteredCleanups,
 	dateReviving,
+	toJsonLines,
+	fromJsonLines,
 } from './_utilities.js';
 
 afterEach(() => {
@@ -370,7 +372,7 @@ describe('the `cache` option', () => {
 
 	it('caches an empty store when the config file is invalid', () => {
 		const cwd = createTempDirectory();
-		fs.writeFileSync(path.join(cwd, 'config.json'), '🦄');
+		fs.writeFileSync(path.join(cwd, 'config.jsonl'), '🦄');
 
 		const conf = trackConf(new Conf({cwd, cache: true, clearInvalidConfig: true}));
 		assert.strictEqual(conf.size, 0);
@@ -478,7 +480,7 @@ describe('the `cache` option', () => {
 
 	it('leaves no cached data behind when a migration fails', () => {
 		const cwd = createTempDirectory();
-		const configPath = path.join(cwd, 'config.json');
+		const configPath = path.join(cwd, 'config.jsonl');
 		createExistingConfig(path.dirname(configPath), {__internal__: {migrations: {version: '0.0.0'}}, stable: 'value'});
 
 		assert.throws(() => {
@@ -601,11 +603,11 @@ describe('a cached store and the file', () => {
 		cached.set('v', 'one');
 		// Populate the cache before the external write.
 		assert.strictEqual(cached.get('v'), 'one');
-		fs.writeFileSync(cached.path, JSON.stringify({v: 'external'}));
+		fs.writeFileSync(cached.path, toJsonLines({v: 'external'}));
 		assert.strictEqual(cached.get('v'), 'one');
 		const uncached = new Conf({cwd: createTempDirectory(), cache: false});
 		uncached.set('v', 'one');
-		fs.writeFileSync(uncached.path, JSON.stringify({v: 'external'}));
+		fs.writeFileSync(uncached.path, toJsonLines({v: 'external'}));
 		assert.strictEqual(uncached.get('v'), 'external');
 	});
 
@@ -613,7 +615,7 @@ describe('a cached store and the file', () => {
 		const cwd = createTempDirectory();
 		const conf = new Conf({cwd, cache: true});
 		conf.set('a', 1);
-		fs.writeFileSync(conf.path, JSON.stringify({a: 1, external: true}));
+		fs.writeFileSync(conf.path, toJsonLines({a: 1, external: true}));
 		conf.set('b', 2);
 		assert.strictEqual(conf.get('external'), true);
 		assert.strictEqual(conf.get('b'), 2);
@@ -647,7 +649,7 @@ describe('a cached store and the file', () => {
 			cache: true,
 			deserialize(text) {
 				calls++;
-				return JSON.parse(text) as Record<string, unknown>;
+				return fromJsonLines(text);
 			},
 		});
 		conf.set('a', 1);
@@ -725,7 +727,7 @@ describe('a cached read', () => {
 				cwd,
 				cache: true,
 				deserialize(text) {
-					const store = JSON.parse(text) as {parent: Record<string, unknown> | unknown[]};
+					const store = fromJsonLines(text) as {parent: Record<string, unknown> | unknown[]};
 					Object.freeze(store.parent);
 					return store;
 				},
@@ -752,7 +754,7 @@ describe('a cached read', () => {
 
 	it('reads one key without touching the rest of the store once the cache is filled', () => {
 		const cwd = createTempDirectory();
-		fs.writeFileSync(path.join(cwd, 'config.json'), '{}');
+		fs.writeFileSync(path.join(cwd, 'config.jsonl'), '{}');
 
 		let touches = 0;
 		const watched = new Proxy({nested: true}, {
@@ -786,7 +788,7 @@ describe('a cached read', () => {
 
 	it('reads a store that reaches itself', () => {
 		const cwd = createTempDirectory();
-		fs.writeFileSync(path.join(cwd, 'config.json'), '{}');
+		fs.writeFileSync(path.join(cwd, 'config.jsonl'), '{}');
 
 		const node: Record<string, unknown> = {name: 'node'};
 		node.left = node;
@@ -807,7 +809,7 @@ describe('a cached read', () => {
 
 	it('hands out the same object in two places as one frozen object', () => {
 		const cwd = createTempDirectory();
-		fs.writeFileSync(path.join(cwd, 'config.json'), '{}');
+		fs.writeFileSync(path.join(cwd, 'config.jsonl'), '{}');
 
 		const shared = {value: 1};
 		const conf = new Conf<Record<string, unknown>>({
@@ -836,7 +838,7 @@ describe('a cached read', () => {
 
 	it('keeps a hole a `deserialize` left in an array, so opening the store again writes nothing', () => {
 		const cwd = createTempDirectory();
-		fs.writeFileSync(path.join(cwd, 'config.json'), '{}');
+		fs.writeFileSync(path.join(cwd, 'config.jsonl'), '{}');
 
 		let writes = 0;
 		const options = {

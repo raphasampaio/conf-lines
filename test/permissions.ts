@@ -21,6 +21,7 @@ import {
 	runRegisteredCleanups,
 	createExistingConfig,
 	trackConf,
+	toJsonLines,
 } from './_utilities.js';
 
 // The two write paths put the mode on differently, one by creating a temporary file with it and one by a `chmod` after the write, so the same file has to end at the same mode either way.
@@ -42,7 +43,7 @@ describe('the mode of the config file', () => {
 					for (const configFileMode of [0o400, 0o600, 0o640, 0o644, 0o700, 0o755]) {
 						for (const alreadyThere of [undefined, 0o444, 0o600, 0o644, 0o666]) {
 							const cwd = createTempDirectory();
-							const file = path.join(cwd, 'config.json');
+							const file = path.join(cwd, 'config.jsonl');
 							if (alreadyThere !== undefined) {
 								fs.writeFileSync(file, '{"kept":true}');
 								fs.chmodSync(file, alreadyThere);
@@ -119,7 +120,7 @@ describe('the mode of the config file', () => {
 			withUmask(0o022, () => {
 				withSnap(snap, () => {
 					const cwd = createTempDirectory();
-					const file = path.join(cwd, 'config.json');
+					const file = path.join(cwd, 'config.jsonl');
 					fs.writeFileSync(file, '{"kept":true}');
 					fs.chmodSync(file, 0o600);
 
@@ -138,7 +139,7 @@ describe('the mode of the config file', () => {
 			withSnap(snap, () => {
 				const cwd = createTempDirectory();
 				createExistingConfig(cwd, {a: 'not a number', __internal__: {migrations: {version: '2.0.0'}}});
-				const file = path.join(cwd, 'config.json');
+				const file = path.join(cwd, 'config.jsonl');
 				fs.chmodSync(file, 0o644);
 
 				assert.throws(() => new Conf({
@@ -240,7 +241,7 @@ describe('a write that goes wrong', () => {
 	it('leaves a directory standing at the config path at the mode the caller made it at', () => {
 		withSnap(true, () => {
 			const cwd = createTempDirectory();
-			const file = path.join(cwd, 'config.json');
+			const file = path.join(cwd, 'config.jsonl');
 			// The `serialize` option is the caller's own code and runs between the read the write does first and the write itself, which is where the file the write opens stops being one it can be written to.
 			let replaceWithDirectory = false;
 			const conf = new Conf<Record<string, unknown>>({
@@ -252,7 +253,7 @@ describe('a write that goes wrong', () => {
 						fs.mkdirSync(file, {mode: 0o500});
 					}
 
-					return JSON.stringify(value, undefined, '\t');
+					return toJsonLines(value);
 				},
 			});
 
@@ -270,7 +271,7 @@ describe('a write that goes wrong', () => {
 	it('leaves no temporary file behind and no file damaged when the write throws', {skip: skipAsRoot}, () => {
 		withSnap(false, () => {
 			const cwd = createTempDirectory();
-			const file = path.join(cwd, 'config.json');
+			const file = path.join(cwd, 'config.jsonl');
 			fs.writeFileSync(file, '{"kept":true}');
 			// A directory the process cannot write a temporary file into is the one thing a write through a temporary file cannot do, and the write fails before the file it was writing is touched.
 			fs.chmodSync(cwd, 0o500);
@@ -281,7 +282,7 @@ describe('a write that goes wrong', () => {
 					conf.set('added', true);
 				}, {code: 'EACCES'});
 
-				assert.deepStrictEqual(fs.readdirSync(cwd), ['config.json']);
+				assert.deepStrictEqual(fs.readdirSync(cwd), ['config.jsonl']);
 				assert.strictEqual(fs.readFileSync(file, 'utf8'), '{"kept":true}');
 			} finally {
 				fs.chmodSync(cwd, 0o700);
@@ -295,7 +296,7 @@ describe('a write in place that throws', () => {
 	it('gives the mode a file was widened to back when the write throws', () => {
 		withSnap(true, () => {
 			const cwd = createResolvedTempDirectory();
-			const configPath = path.join(cwd, 'config.json');
+			const configPath = path.join(cwd, 'config.jsonl');
 			// The `serialize` option is the caller's own code and runs between the read the write does first and the write itself, which is where the file the write opens stops being one it can be written to. A directory a caller left without the write bit is the one thing a write cannot go into on any platform, whatever the user it runs as.
 			let breakTheFile = false;
 			const conf = new Conf<Record<string, unknown>>({
@@ -306,7 +307,7 @@ describe('a write in place that throws', () => {
 						fs.mkdirSync(configPath, {mode: 0o500});
 					}
 
-					return JSON.stringify(value, undefined, '\t');
+					return toJsonLines(value);
 				},
 			});
 
@@ -401,7 +402,7 @@ describe('the mode a file is given, beside a key and a pass of migrations', () =
 	it('leaves the mode the option names on every write, of an encrypted file that is already there', () => {
 		const cwd = createTempDirectory();
 		createExistingConfig(cwd, {old: true});
-		const file = path.join(cwd, 'config.json');
+		const file = path.join(cwd, 'config.jsonl');
 		fs.chmodSync(file, 0o644);
 
 		const ran: string[] = [];

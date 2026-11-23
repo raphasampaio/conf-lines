@@ -19,6 +19,8 @@ import {
 	resetTrackedConfs,
 	writeLegacyEncryptedConfig,
 	readConfigFile,
+	toJsonLines,
+	fromJsonLines,
 } from './_utilities.js';
 
 const fixture = '🦄';
@@ -99,7 +101,7 @@ describe('encryption', () => {
 		// A `null` is the same as not passing the option, the way every option is read.
 		const plainCwd = createTempDirectory();
 		new Conf({cwd: plainCwd, encryptionKey: null as any}).set('foo', fixture);
-		assert.deepStrictEqual(readConfigFile(path.join(plainCwd, 'config.json')), {foo: fixture});
+		assert.deepStrictEqual(readConfigFile(path.join(plainCwd, 'config.jsonl')), {foo: fixture});
 
 		// An empty `Uint8Array` is a key, since the encryption asks for it and applies it both ways.
 		const keptCwd = createTempDirectory();
@@ -155,12 +157,13 @@ describe('encryption', () => {
 		// Byte 16 is the one byte of the encrypted format a read can look for, so a plaintext file has to be read as plaintext with a `:` there and without one.
 		const separatorStatesSeen = new Set<boolean>();
 
-		for (const keyLength of [1, 11]) {
+		// The `:` after a first key of 13 characters is byte 16 of the file.
+		for (const keyLength of [1, 13]) {
 			const cwd = createTempDirectory();
-			const configPath = path.join(cwd, 'config.json');
-			const json = JSON.stringify({['a'.repeat(keyLength)]: 'value', foo: fixture}, undefined, '\t');
-			fs.writeFileSync(configPath, json);
-			separatorStatesSeen.add(json.codePointAt(initializationVectorLength) === separatorCodePoint);
+			const configPath = path.join(cwd, 'config.jsonl');
+			const text = toJsonLines({['a'.repeat(keyLength)]: 'value', foo: fixture});
+			fs.writeFileSync(configPath, text);
+			separatorStatesSeen.add(text.codePointAt(initializationVectorLength) === separatorCodePoint);
 
 			assert.strictEqual(new Conf({cwd, encryptionKey: 'k'}).get('foo'), fixture, `a file whose first key is ${keyLength} characters long`);
 		}
@@ -172,10 +175,10 @@ describe('encryption', () => {
 		const cwd = createTempDirectory();
 		new Conf({cwd, encryptionKey: 'k', encryptionAlgorithm: 'aes-256-gcm'}).set('foo', fixture);
 
-		const file = fs.readFileSync(path.join(cwd, 'config.json'));
+		const file = fs.readFileSync(path.join(cwd, 'config.jsonl'));
 		// The initialization vector and the separator are what a read looks for, and the tag is what makes the data readable.
 		for (const length of [initializationVectorLength, initializationVectorLength + 1, file.length - authenticationTagLength]) {
-			fs.writeFileSync(path.join(cwd, 'config.json'), file.subarray(0, length));
+			fs.writeFileSync(path.join(cwd, 'config.jsonl'), file.subarray(0, length));
 
 			assert.throws(() => {
 				new Conf({cwd, encryptionKey: 'k', encryptionAlgorithm: 'aes-256-gcm'});
@@ -188,7 +191,7 @@ describe('encryption', () => {
 		new Conf({cwd, encryptionKey: 'k', encryptionAlgorithm: 'aes-256-gcm'}).set('foo', fixture);
 		new Conf({cwd, encryptionKey: 'k', encryptionAlgorithm: 'aes-256-gcm'}).set('bar', fixture);
 
-		const configPath = path.join(cwd, 'config.json');
+		const configPath = path.join(cwd, 'config.jsonl');
 		const original = fs.readFileSync(configPath);
 		// The initialization vector, the separator, the ciphertext and the authentication tag.
 		const positions = [0, initializationVectorLength - 1, initializationVectorLength, initializationVectorLength + 1, original.length - authenticationTagLength - 1, original.length - 1];
@@ -212,7 +215,7 @@ describe('encryption', () => {
 
 	it('reads a store an older version wrote, then writes it the current way', () => {
 		const cwd = createTempDirectory();
-		const configPath = path.join(cwd, 'config.json');
+		const configPath = path.join(cwd, 'config.jsonl');
 		writeLegacyEncryptedConfig({filePath: configPath, encryptionKey: 'k', value: {foo: fixture}});
 
 		const config = new Conf({cwd, encryptionKey: 'k'});
@@ -227,7 +230,7 @@ describe('encryption', () => {
 		const decipher = crypto.createDecipheriv('aes-256-cbc', password, initializationVector);
 		const rewritten = Buffer.concat([decipher.update(file.subarray(initializationVectorLength + 1)), decipher.final()]).toString();
 
-		assert.deepStrictEqual(JSON.parse(rewritten), {foo: fixture, bar: 'baz'});
+		assert.deepStrictEqual(fromJsonLines(rewritten), {foo: fixture, bar: 'baz'});
 	});
 
 	// A file written with an algorithm an older version did not have is one that version cannot read, and it says so rather than reading the bytes as text, which is what a store that found it would otherwise do.
@@ -248,15 +251,15 @@ describe('encryption', () => {
 	for (const encryptionKey of [undefined, 'k'] as Array<string | undefined>) {
 		it(`writes through a symlink at the config path${encryptionKey ? ' with a key' : ''}`, () => {
 			const cwd = createTempDirectory();
-			const target = path.join(cwd, 'target.json');
-			fs.writeFileSync(target, JSON.stringify({before: true}, undefined, '\t'));
-			fs.symlinkSync(target, path.join(cwd, 'config.json'));
+			const target = path.join(cwd, 'target.jsonl');
+			fs.writeFileSync(target, toJsonLines({before: true}));
+			fs.symlinkSync(target, path.join(cwd, 'config.jsonl'));
 			const options = {cwd, ...encryptionKey ? {encryptionKey} : {}};
 
 			new Conf<Record<string, unknown>>(options).set('after', true);
 
 			// The link is followed rather than renamed over, since what it points at is the file the store reads back.
-			assert.ok(fs.lstatSync(path.join(cwd, 'config.json')).isSymbolicLink());
+			assert.ok(fs.lstatSync(path.join(cwd, 'config.jsonl')).isSymbolicLink());
 			assert.deepStrictEqual({...new Conf<Record<string, unknown>>(options).store}, {before: true, after: true});
 		});
 	}
@@ -320,15 +323,15 @@ describe('a plaintext config file read with a key', () => {
 	// `aes-256-cbc` reads a plaintext config file for backward compatibility, and a wrong key salt can decrypt to data with valid padding, so what the decrypt leaves behind is not always the file.
 	it('reads a plaintext file the decrypt turns into something else', () => {
 		const cwd = createTempDirectory();
-		// The `:` of an 11-character key is the 17th byte, and the file is a whole number of AES blocks, so the wrong key salt decrypts without complaint.
-		fs.writeFileSync(path.join(cwd, 'config.json'), '{"aaaaaaaaaaaaa":"aa00000000273"}');
+		// The `:` of a 13-character key is the 17th byte, and the file is a whole number of AES blocks, so the wrong key salt decrypts without complaint.
+		fs.writeFileSync(path.join(cwd, 'config.jsonl'), '{"aaaaaaaaaaaaa":"aa00000000273"}');
 
 		assert.deepStrictEqual({...new Conf<Record<string, unknown>>({cwd, encryptionKey: 'a-key'}).store}, {aaaaaaaaaaaaa: 'aa00000000273'});
 	});
 
 	it('still reports a file that is not a store, encrypted or not', () => {
 		const cwd = createTempDirectory();
-		fs.writeFileSync(path.join(cwd, 'config.json'), 'not a store at all');
+		fs.writeFileSync(path.join(cwd, 'config.jsonl'), 'not a store at all');
 		assert.throws(() => new Conf({cwd, encryptionKey: 'a-key'}), {name: 'SyntaxError'});
 	});
 });
@@ -448,7 +451,7 @@ describe('key types and formats', () => {
 		// A typed array is key material whatever its length and is derived, so an empty one still writes ciphertext the way a short string does, while the refusals above cover the values the module would take as no key at all.
 		const conf = new Conf(options);
 		conf.set('foo', 'bar');
-		assert.notStrictEqual(fs.readFileSync(conf.path, 'utf8'), JSON.stringify({foo: 'bar'}));
+		assert.notStrictEqual(fs.readFileSync(conf.path, 'utf8'), toJsonLines({foo: 'bar'}));
 		assert.strictEqual(new Conf(options).get('foo'), 'bar');
 	});
 });
@@ -543,12 +546,12 @@ describe('an encrypted store', () => {
 		conf.set('foo', fixture);
 
 		const data = decryptEncryptedConfig({
-			filePath: path.join(cwd, 'config.json'),
+			filePath: path.join(cwd, 'config.jsonl'),
 			encryptionKey,
 			encryptionAlgorithm: 'aes-256-gcm',
 		});
 
-		assert.strictEqual(JSON.parse(data).foo, fixture);
+		assert.strictEqual(fromJsonLines(data).foo, fixture);
 	});
 
 	it('encryption - aes-256-gcm - empty serialized payload', () => {
@@ -617,8 +620,8 @@ describe('an encrypted store', () => {
 
 	it('encryption - aes-256-gcm - plaintext upgrade fails', () => {
 		const cwd = createTempDirectory();
-		const configPath = path.join(cwd, 'config.json');
-		fs.writeFileSync(configPath, JSON.stringify({foo: fixture}, null, '\t'));
+		const configPath = path.join(cwd, 'config.jsonl');
+		fs.writeFileSync(configPath, toJsonLines({foo: fixture}));
 
 		assert.throws(() => {
 			new Conf({
@@ -632,7 +635,7 @@ describe('an encrypted store', () => {
 	it('encryption - legacy initialization vector salt', () => {
 		const cwd = createTempDirectory();
 		const encryptionKey = 'abc123';
-		const configPath = path.join(cwd, 'config.json');
+		const configPath = path.join(cwd, 'config.jsonl');
 
 		writeLegacyEncryptedConfig({
 			filePath: configPath,
@@ -656,12 +659,12 @@ describe('an encrypted store', () => {
 		conf.set('foo', fixture);
 
 		const data = decryptEncryptedConfig({
-			filePath: path.join(cwd, 'config.json'),
+			filePath: path.join(cwd, 'config.jsonl'),
 			encryptionKey,
 			encryptionAlgorithm: 'aes-256-ctr',
 		});
 
-		assert.strictEqual(JSON.parse(data).foo, fixture);
+		assert.strictEqual(fromJsonLines(data).foo, fixture);
 	});
 
 	it('encryption - aes-256-ctr - plaintext upgrade fails', () => {
@@ -681,9 +684,9 @@ describe('an encrypted store', () => {
 
 	it('encryption - aes-256-cbc - plaintext upgrade succeeds', () => {
 		const cwd = createTempDirectory();
-		const configPath = path.join(cwd, 'config.json');
+		const configPath = path.join(cwd, 'config.jsonl');
 
-		fs.writeFileSync(configPath, JSON.stringify({foo: fixture}, null, '\t'));
+		fs.writeFileSync(configPath, toJsonLines({foo: fixture}));
 
 		const config = new Conf({cwd, encryptionKey: 'abc123'});
 		assert.strictEqual(config.get('foo'), fixture);
@@ -701,7 +704,7 @@ describe('an encrypted store', () => {
 		before.set('foo', fixture);
 		assert.strictEqual(before.get('foo'), fixture);
 
-		fs.appendFileSync(path.join(cwd, 'config.json'), 'corrupt file');
+		fs.appendFileSync(path.join(cwd, 'config.jsonl'), 'corrupt file');
 
 		const after = new Conf({
 			cwd,
@@ -715,7 +718,7 @@ describe('an encrypted store', () => {
 	it('encryption - invalid separator fails', () => {
 		const cwd = createTempDirectory();
 		const encryptionKey = 'abc123';
-		const configPath = path.join(cwd, 'config.json');
+		const configPath = path.join(cwd, 'config.jsonl');
 
 		const before = new Conf({
 			cwd,
@@ -748,7 +751,7 @@ describe('an encrypted store', () => {
 		});
 
 		before.set('enabled', true);
-		const corruptedPath = path.join(cwd, 'config.json');
+		const corruptedPath = path.join(cwd, 'config.jsonl');
 		fs.writeFileSync(corruptedPath, 'corrupt-data');
 		fs.statSync(corruptedPath);
 
@@ -778,7 +781,7 @@ describe('an encrypted store', () => {
 	it('reads a legacy encrypted config file when the first decryption is not readable', () => {
 		const cwd = createTempDirectory();
 		writeLegacyEncryptedConfig({
-			filePath: path.join(cwd, 'config.json'),
+			filePath: path.join(cwd, 'config.jsonl'),
 			encryptionKey: 'abc123',
 			value: {foo: '🦄'},
 		});
@@ -794,7 +797,7 @@ describe('an encrypted store', () => {
 					throw new SyntaxError('Not readable');
 				}
 
-				return JSON.parse(value) as Record<string, unknown>;
+				return fromJsonLines(value);
 			},
 		});
 
@@ -855,7 +858,7 @@ describe('a store encrypted with another key', () => {
 			encryptionKey: 'wrong',
 			encryptionAlgorithm: 'aes-256-gcm',
 		});
-		fs.copyFileSync(path.join(cwd, 'config.json'), wrong.path);
+		fs.copyFileSync(path.join(cwd, 'config.jsonl'), wrong.path);
 
 		const realDerive = crypto.pbkdf2Sync;
 		let derivations = 0;

@@ -9,6 +9,8 @@ import {
 	runRegisteredCleanups,
 	getMigrationVersion,
 	readConfigFile,
+	fromJsonLines,
+	toJsonLines,
 	configDirectoryHolding,
 	resetTrackedConfs,
 } from './_utilities.js';
@@ -22,7 +24,7 @@ const countingDeserializer = (): {deserialize(text: string): any; reads(): numbe
 	return {
 		deserialize(text: string) {
 			count++;
-			return JSON.parse(text);
+			return fromJsonLines(text);
 		},
 		reads() {
 			return count;
@@ -242,7 +244,7 @@ describe('Reads of the config file', () => {
 			cwd: createTempDirectory(),
 			deserialize(text) {
 				deserializeCallCount++;
-				return JSON.parse(text) as Record<string, unknown>;
+				return fromJsonLines(text);
 			},
 		});
 
@@ -272,7 +274,7 @@ describe('Reads of the config file', () => {
 			// Every read of the config file asks the deserializer for the store, so this counts them.
 			deserialize(text: string) {
 				reads++;
-				return JSON.parse(text) as Record<string, unknown>;
+				return fromJsonLines(text);
 			},
 		});
 
@@ -343,7 +345,7 @@ describe('The bookkeeping key on a read', () => {
 
 	it('does not parse a key that is a key of its own, so a read does not parse every key the store holds', () => {
 		const cwd = createTempDirectory();
-		fs.writeFileSync(`${cwd}/config.json`, JSON.stringify(storeOfKeysOfItsOwn(500)));
+		fs.writeFileSync(`${cwd}/config.jsonl`, toJsonLines(storeOfKeysOfItsOwn(500)));
 		const config = new Conf<Record<string, unknown>>({cwd});
 
 		assert.equal(config.size, 500);

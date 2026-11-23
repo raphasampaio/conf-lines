@@ -44,16 +44,42 @@ type MigrationTestOptions = {
 };
 
 /**
-Creates the config file, so the store is treated as one that already exists. A store that does not exist yet skips its migrations.
+The text of a config file holding the given store, which is JSON Lines with one top-level key per line, the way the store writes it. A value that is not an object is written as the one line it is.
 */
-export const createExistingConfig = (cwd: string, data: unknown = {}, fileName = 'config.json'): void => {
-	fs.writeFileSync(path.join(cwd, fileName), JSON.stringify(data, null, '\t'));
+export const toJsonLines = (data: unknown): string => {
+	if (data === null || typeof data !== 'object' || Array.isArray(data)) {
+		return `${JSON.stringify(data)}\n`;
+	}
+
+	return Object.entries(data as Record<string, unknown>)
+		.map(([key, value]) => JSON.stringify({[key]: value}))
+		.filter(line => line !== '{}')
+		.map(line => `${line}\n`)
+		.join('');
 };
 
 /**
-Reads a config file, or the config file of a store, as JSON.
+The store a config file in JSON Lines holds, which is the keys of every line it has merged into one object.
 */
-export const readConfigFile = (file: string | {readonly path: string}): Record<string, any> => JSON.parse(fs.readFileSync(typeof file === 'string' ? file : file.path, 'utf8')) as Record<string, any>;
+export const fromJsonLines = (text: string): Record<string, any> => Object.fromEntries(text
+	.split('\n')
+	.filter(line => line.trim() !== '')
+	.flatMap(line => {
+		const item: unknown = JSON.parse(line);
+		return item !== null && typeof item === 'object' && !Array.isArray(item) ? Object.entries(item) : [];
+	})) as Record<string, any>;
+
+/**
+Creates the config file, so the store is treated as one that already exists. A store that does not exist yet skips its migrations.
+*/
+export const createExistingConfig = (cwd: string, data: unknown = {}, fileName = 'config.jsonl'): void => {
+	fs.writeFileSync(path.join(cwd, fileName), toJsonLines(data));
+};
+
+/**
+Reads a config file, or the config file of a store, as JSON Lines.
+*/
+export const readConfigFile = (file: string | {readonly path: string}): Record<string, any> => fromJsonLines(fs.readFileSync(typeof file === 'string' ? file : file.path, 'utf8'));
 
 /**
 Creates a temporary Conf instance with migrations for testing.
@@ -69,7 +95,7 @@ export function createMigrationTest(options: MigrationTestOptions): {
 		scheduledCleanups.add(cwd);
 	}
 
-	const sanitizedExtension = (options.fileExtension ?? 'json').replace(/^\.+/, '');
+	const sanitizedExtension = (options.fileExtension ?? 'jsonl').replace(/^\.+/, '');
 	const extensionSuffix = sanitizedExtension ? `.${sanitizedExtension}` : '';
 	const fileName = `${options.configName ?? 'config'}${extensionSuffix}`;
 	const configPath = path.join(cwd, fileName);
@@ -114,7 +140,7 @@ export const writeLegacyEncryptedConfig = ({
 	const initializationVector = crypto.randomBytes(encryptionInitializationVectorLength);
 	const password = crypto.pbkdf2Sync(encryptionKey, initializationVector.toString(), 10_000, 32, 'sha512');
 	const cipher = crypto.createCipheriv('aes-256-cbc', password, initializationVector);
-	const serialized = JSON.stringify(value, undefined, '\t');
+	const serialized = toJsonLines(value);
 	const encryptedData = Buffer.concat([cipher.update(Buffer.from(serialized)), cipher.final()]);
 	const data = Buffer.concat([initializationVector, Buffer.from(encryptionSeparatorCharacter), encryptedData]);
 	fs.writeFileSync(filePath, data);
@@ -256,7 +282,7 @@ A temporary directory reached by the path it really has. A path with a link of i
 export const createResolvedTempDirectory = (): string => fs.realpathSync(createTempDirectory());
 
 /**
-A link at the config path and a file for it to point at, `first/shared.json`, each in a directory of its own.
+A link at the config path and a file for it to point at, `first/shared.jsonl`, each in a directory of its own.
 */
 export const linkedConfig = (): {cwd: string; first: string} => {
 	const base = createResolvedTempDirectory();
@@ -264,7 +290,7 @@ export const linkedConfig = (): {cwd: string; first: string} => {
 	const first = path.join(base, 'first');
 	fs.mkdirSync(cwd);
 	fs.mkdirSync(first);
-	fs.symlinkSync(path.join(first, 'shared.json'), path.join(cwd, 'config.json'));
+	fs.symlinkSync(path.join(first, 'shared.jsonl'), path.join(cwd, 'config.jsonl'));
 
 	return {cwd, first};
 };
@@ -312,10 +338,13 @@ export const withSnap = (snap: boolean, body: () => void): void => {
 const isoDate = /^\d{4}-\d{2}-\d{2}T[\d:.]+Z$/;
 
 /**
-A `deserialize` that brings back the `Date`s the store was written with, which is what puts a value that writes itself back into a store.
+A `deserialize` that brings back the `Date`s the store was written with, which is what puts a value that writes itself back into a store. It reads the JSON Lines the default `serialize` writes, one line at a time.
 */
 export const dateReviving = {
-	deserialize: ((text: string) => JSON.parse(text, (key, value: unknown) => (typeof value === 'string' && isoDate.test(value) ? new Date(value) : value)) as Record<string, unknown>) as never,
+	deserialize: ((text: string) => Object.fromEntries(text
+		.split('\n')
+		.filter(line => line.trim() !== '')
+		.flatMap(line => Object.entries(JSON.parse(line, (key, value: unknown) => (typeof value === 'string' && isoDate.test(value) ? new Date(value) : value)) as Record<string, unknown>)))) as never,
 };
 
 /**
@@ -372,10 +401,10 @@ export function createMigrationOrderTracker(): {
 /**
 Reads the migration version from the config file of the given store, or of a config file at `{path}` where there is no store to ask. The version is kept under the key this module reserves for itself, which is deliberately not exposed through the public API, so it has to be read from the file.
 
-This reads the file as plaintext JSON, so it cannot be used with a store that has the `encryptionKey` or `serialize` option set.
+This reads the file as plaintext JSON Lines, so it cannot be used with a store that has the `encryptionKey` or `serialize` option set.
 */
 export const getMigrationVersion = (conf: {readonly path: string}): string | undefined => {
-	const data = JSON.parse(fs.readFileSync(conf.path, 'utf8')) as {
+	const data = fromJsonLines(fs.readFileSync(conf.path, 'utf8')) as {
 		__internal__?: {migrations?: {version?: unknown}};
 	};
 	const version = data.__internal__?.migrations?.version;

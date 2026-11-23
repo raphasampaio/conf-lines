@@ -18,6 +18,7 @@ import {
 	untilWatching,
 	getMigrationVersion,
 	createExistingConfig,
+	toJsonLines,
 } from './_utilities.js';
 
 const encryptedOptions = (cwd: string) => ({cwd, encryptionKey: 'key', encryptionAlgorithm: 'aes-256-gcm' as const});
@@ -53,7 +54,7 @@ describe('a construction that cannot clear the config it migrated', () => {
 				rootSchema: {required: ['a']},
 				...options,
 			}), {message: 'Config schema violation: `` must have required property \'a\''});
-			assert.strictEqual(fs.existsSync(path.join(cwd, 'config.json')), false, `the file after a construction ${name}`);
+			assert.strictEqual(fs.existsSync(path.join(cwd, 'config.jsonl')), false, `the file after a construction ${name}`);
 		});
 	}
 
@@ -85,7 +86,7 @@ describe('a damaged config file whose bytes carry the encrypted separator', () =
 	// The separator is the one byte of the encrypted format a read can look for, and a store in plain text can have it, so it only counts where the bytes are not text, which is what this module made them when it encrypted a store. A store in plain text is text however a byte of it was lost, so a damaged one is cleared the way `clearInvalidConfig` says it is.
 	it('is cleared, since a store in plain text is text', () => {
 		const cwd = createTempDirectory();
-		const filePath = path.join(cwd, 'config.json');
+		const filePath = path.join(cwd, 'config.jsonl');
 		const damaged = Buffer.from('{"abcdefghijklm": tru');
 		assert.strictEqual(damaged[16], 0x3A, 'the seventeenth byte is the separator the encrypted format puts there');
 
@@ -124,9 +125,10 @@ describe('a config file that was damaged', () => {
 	// A store written in plain text and then damaged by a lost byte is not a file this module encrypted, whatever its bytes are now, so it is cleared the way a store that cannot be parsed at all is.
 	it('is cleared where the damage took a byte out of a character', () => {
 		const cwd = createTempDirectory();
-		const filePath = path.join(cwd, 'config.json');
-		const damaged = Buffer.from(JSON.stringify({greeting: '🦄'}, undefined, '\t'), 'utf8');
-		damaged[13] = 0x9F;
+		const filePath = path.join(cwd, 'config.jsonl');
+		const damaged = Buffer.from(toJsonLines({greeting: '🦄'}), 'utf8');
+		// A byte of the unicorn lands where the `:` was, which leaves the line no JSON.
+		damaged[damaged.indexOf(':')] = 0x9F;
 
 		fs.writeFileSync(filePath, damaged);
 		const conf = new Conf<Record<string, unknown>>({cwd, clearInvalidConfig: true});
@@ -139,7 +141,7 @@ describe('a config file that was damaged', () => {
 
 	it('is cleared where the file is a lone character, which is valid text', () => {
 		const cwd = createTempDirectory();
-		fs.writeFileSync(path.join(cwd, 'config.json'), '🦄');
+		fs.writeFileSync(path.join(cwd, 'config.jsonl'), '🦄');
 
 		const conf = new Conf<Record<string, unknown>>({cwd, clearInvalidConfig: true});
 		assert.deepStrictEqual(conf.store, createNullProtoObject({}));
@@ -159,7 +161,7 @@ describe('a damaged config file that carries the encrypted separator', () => {
 		] as Array<[string, Uint8Array]>) {
 			it(`is cleared with \`${encryptionAlgorithm}\`, where the file holds ${name}`, () => {
 				const cwd = createTempDirectory();
-				const filePath = path.join(cwd, 'config.json');
+				const filePath = path.join(cwd, 'config.jsonl');
 				fs.writeFileSync(filePath, file);
 
 				const conf = new Conf<Record<string, unknown>>({
@@ -180,7 +182,7 @@ describe('a read that clears the config file', () => {
 	it('reports the change it made to the file', () => {
 		for (const [name, options, contents] of [
 			['malformed JSON', {}, '{corrupt'],
-			['a schema violation', {schema: {a: {type: 'number'}}}, JSON.stringify({a: 'not a number'})],
+			['a schema violation', {schema: {a: {type: 'number'}}}, toJsonLines({a: 'not a number'})],
 		] as Array<[string, Record<string, unknown>, string]>) {
 			const cwd = createTempDirectory();
 			const conf = new Conf<Record<string, unknown>>({cwd, clearInvalidConfig: true, ...options});
@@ -249,7 +251,7 @@ describe('a read that clears the config file', () => {
 describe('clearInvalidConfig', () => {
 	it('writes the cleared store over a file with malformed JSON', () => {
 		const cwd = createTempDirectory();
-		const filePath = path.join(cwd, 'config.json');
+		const filePath = path.join(cwd, 'config.jsonl');
 		fs.writeFileSync(filePath, '{corrupt');
 		const conf = new Conf({cwd, clearInvalidConfig: true});
 		assert.deepStrictEqual(conf.store, createNullProtoObject({}));
@@ -283,14 +285,19 @@ describe('clearInvalidConfig', () => {
 		assert.deepStrictEqual(new Conf(encryptedOptions(cwd)).store, createNullProtoObject({}));
 	});
 
-	// A `SyntaxError` says the file is not the format the store reads, whichever `deserialize` throws it.
+	// A `SyntaxError` says the file is not the format the store reads, whichever `deserialize` throws it. The `serialize` is the one that goes with it, since the default one writes JSON Lines, which `JSON.parse` does not read back.
 	it('clears a file a `deserialize` of the caller throws a `SyntaxError` for', () => {
 		for (const deserialize of [JSON.parse, (text: string) => JSON.parse(text) as unknown]) {
 			const cwd = createTempDirectory();
-			const filePath = path.join(cwd, 'config.json');
+			const filePath = path.join(cwd, 'config.jsonl');
 			fs.writeFileSync(filePath, '{corrupt');
 
-			const conf = new Conf({cwd, clearInvalidConfig: true, deserialize: deserialize as (text: string) => Record<string, unknown>});
+			const conf = new Conf({
+				cwd,
+				clearInvalidConfig: true,
+				serialize: value => JSON.stringify(value),
+				deserialize: deserialize as (text: string) => Record<string, unknown>,
+			});
 			assert.deepStrictEqual({...conf.store}, {});
 			assert.deepStrictEqual(readConfigFile(filePath), {});
 		}
@@ -299,7 +306,7 @@ describe('clearInvalidConfig', () => {
 	// Any other error says the store cannot read the file right now, such as a service the `deserialize` reads from being down, so it is thrown and the file is left alone.
 	it('throws an error of another kind a `deserialize` of the caller throws, and leaves the file alone', () => {
 		const cwd = createTempDirectory();
-		const filePath = path.join(cwd, 'config.json');
+		const filePath = path.join(cwd, 'config.jsonl');
 		fs.writeFileSync(filePath, 'MYCUSTOMFORMAT');
 
 		assert.throws(() => new Conf({
@@ -314,21 +321,21 @@ describe('clearInvalidConfig', () => {
 
 	it('writes the defaults into the cleared store', () => {
 		const cwd = createTempDirectory();
-		fs.writeFileSync(path.join(cwd, 'config.json'), '{corrupt');
+		fs.writeFileSync(path.join(cwd, 'config.jsonl'), '{corrupt');
 		const conf = new Conf<{foo: number}>({
 			cwd,
 			clearInvalidConfig: true,
 			defaults: {foo: 1},
 		});
 		assert.strictEqual(conf.get('foo'), 1);
-		assert.deepStrictEqual(readConfigFile(path.join(cwd, 'config.json')), {foo: 1});
+		assert.deepStrictEqual(readConfigFile(path.join(cwd, 'config.jsonl')), {foo: 1});
 	});
 
 	it('leaves a file it must not clear alone', () => {
 		const cwd = createTempDirectory();
-		fs.writeFileSync(path.join(cwd, 'config.json'), '{corrupt');
+		fs.writeFileSync(path.join(cwd, 'config.jsonl'), '{corrupt');
 		assert.throws(() => new Conf({cwd}), {name: 'SyntaxError'});
-		assert.strictEqual(fs.readFileSync(path.join(cwd, 'config.json'), 'utf8'), '{corrupt');
+		assert.strictEqual(fs.readFileSync(path.join(cwd, 'config.jsonl'), 'utf8'), '{corrupt');
 	});
 
 	it('clears an encrypted file a key was not given for', () => {
@@ -348,7 +355,7 @@ describe('clearInvalidConfig', () => {
 	// `aes-256-cbc` reads a plaintext file, so a key that is set does not mean the file is encrypted, and a plaintext file that got damaged is cleared as one.
 	it('clears a malformed plaintext file the `aes-256-cbc` key reads', () => {
 		const cwd = createTempDirectory();
-		const filePath = path.join(cwd, 'config.json');
+		const filePath = path.join(cwd, 'config.jsonl');
 		fs.writeFileSync(filePath, '{corrupt');
 
 		const conf = new Conf<{foo: number}>({cwd, encryptionKey: 'key', clearInvalidConfig: true});
@@ -357,15 +364,17 @@ describe('clearInvalidConfig', () => {
 		assert.deepStrictEqual(new Conf<{foo: number}>({cwd, encryptionKey: 'key'}).store, createNullProtoObject({foo: 1}));
 	});
 
-	it('clears a file that holds no store at all', () => {
+	// A file with no line holding a key is the empty store in JSON Lines, so there is nothing to clear, with the option or without it.
+	it('reads a file that holds no store at all as the empty store', () => {
 		for (const contents of ['', '   \n\t']) {
 			const cwd = createTempDirectory();
-			const filePath = path.join(cwd, 'config.json');
+			const filePath = path.join(cwd, 'config.jsonl');
 			fs.writeFileSync(filePath, contents);
 
 			const conf = new Conf({cwd, clearInvalidConfig: true});
-			assert.deepStrictEqual(conf.store, createNullProtoObject({}), `the store cleared from ${JSON.stringify(contents)}`);
-			assert.deepStrictEqual(readConfigFile(filePath), {}, `the file cleared from ${JSON.stringify(contents)}`);
+			assert.deepStrictEqual(conf.store, createNullProtoObject({}), `the store read from ${JSON.stringify(contents)}`);
+			assert.deepStrictEqual(readConfigFile(filePath), {}, `the file read from ${JSON.stringify(contents)}`);
+			assert.deepStrictEqual(new Conf({cwd}).store, createNullProtoObject({}), `the store read without the option from ${JSON.stringify(contents)}`);
 		}
 	});
 });
@@ -373,7 +382,7 @@ describe('clearInvalidConfig', () => {
 describe('clearing a config the schema cannot accept once cleared', () => {
 	it('reports the schema and leaves the file as it was', () => {
 		const cwd = createTempDirectory();
-		fs.writeFileSync(path.join(cwd, 'config.json'), '{corrupt');
+		fs.writeFileSync(path.join(cwd, 'config.jsonl'), '{corrupt');
 
 		// A required key with no `default` of its own cannot be there once the config is cleared, so there is no store to write and the file is left as it is.
 		assert.throws(() => new Conf<Record<string, any>>({
@@ -382,12 +391,12 @@ describe('clearing a config the schema cannot accept once cleared', () => {
 			schema: {a: {type: 'string'}},
 			rootSchema: {required: ['b']},
 		}), {message: 'Config schema violation: `` must have required property \'b\''});
-		assert.strictEqual(fs.readFileSync(path.join(cwd, 'config.json'), 'utf8'), '{corrupt');
+		assert.strictEqual(fs.readFileSync(path.join(cwd, 'config.jsonl'), 'utf8'), '{corrupt');
 	});
 
 	it('writes the store the defaults make valid, where the schema can accept one', () => {
 		const cwd = createTempDirectory();
-		fs.writeFileSync(path.join(cwd, 'config.json'), '{corrupt');
+		fs.writeFileSync(path.join(cwd, 'config.jsonl'), '{corrupt');
 
 		const conf = new Conf<Record<string, any>>({
 			cwd,
@@ -406,7 +415,7 @@ describe('clearing a config the schema cannot accept once cleared', () => {
 describe('clearing a config file', () => {
 	it('clears a schema violation and applies defaults', () => {
 		const cwd = createTempDirectory();
-		fs.writeFileSync(path.join(cwd, 'config.json'), JSON.stringify({n: 'bad'}));
+		fs.writeFileSync(path.join(cwd, 'config.jsonl'), toJsonLines({n: 'bad'}));
 		const conf = new Conf({
 			cwd, schema: {n: {type: 'number'}}, defaults: {n: 7}, clearInvalidConfig: true,
 		});
@@ -435,18 +444,20 @@ describe('clearing a config file', () => {
 		}, {message: 'Failed to decrypt config data.'});
 	});
 
-	it('clears whitespace-only files', () => {
+	// Blank lines are skipped in JSON Lines, so a whitespace-only file is the empty store rather than one to clear.
+	it('reads whitespace-only files as the empty store', () => {
 		const cwd = createTempDirectory();
-		fs.writeFileSync(path.join(cwd, 'config.json'), '   \n');
+		fs.writeFileSync(path.join(cwd, 'config.jsonl'), '   \n');
 		const conf = new Conf({cwd, clearInvalidConfig: true});
 		assert.deepStrictEqual(conf.store, createNullProtoObject({}));
+		assert.deepStrictEqual(new Conf({cwd}).store, createNullProtoObject({}));
 	});
 });
 
 describe('clearing a config file with other options', () => {
 	it('recovers a corrupt file when migrations are also configured', () => {
 		const cwd = createTempDirectory();
-		fs.writeFileSync(path.join(cwd, 'config.json'), '{corrupt');
+		fs.writeFileSync(path.join(cwd, 'config.jsonl'), '{corrupt');
 		const conf = new Conf({
 			cwd,
 			projectVersion: '1.0.0',
@@ -462,7 +473,7 @@ describe('clearing a config file with other options', () => {
 
 	it('clears invalid schema data back to defaults', () => {
 		const cwd = createTempDirectory();
-		fs.writeFileSync(path.join(cwd, 'config.json'), JSON.stringify({n: 'bad'}));
+		fs.writeFileSync(path.join(cwd, 'config.jsonl'), toJsonLines({n: 'bad'}));
 		const conf = new Conf({
 			cwd,
 			clearInvalidConfig: true,
@@ -474,7 +485,7 @@ describe('clearing a config file with other options', () => {
 
 	it('keeps a valid file untouched when the flag is on', () => {
 		const cwd = createTempDirectory();
-		fs.writeFileSync(path.join(cwd, 'config.json'), JSON.stringify({keep: 'me'}));
+		fs.writeFileSync(path.join(cwd, 'config.jsonl'), toJsonLines({keep: 'me'}));
 		const conf = new Conf({cwd, clearInvalidConfig: true});
 		assert.deepStrictEqual(conf.store, createNullProtoObject({keep: 'me'}));
 	});
@@ -508,7 +519,7 @@ describe('a config file a read could not read', () => {
 	it('writes a whole store over a file a read cannot read, where the `clearInvalidConfig` option is not set', () => {
 		const cwd = createTempDirectory();
 		const conf = new Conf<Store>({cwd, encryptionKey: 'key', encryptionAlgorithm: 'aes-256-gcm'});
-		fs.writeFileSync(conf.path, JSON.stringify({a: 1}));
+		fs.writeFileSync(conf.path, toJsonLines({a: 1}));
 
 		assert.throws(() => {
 			conf.set('b', 2);
@@ -520,7 +531,7 @@ describe('a config file a read could not read', () => {
 	// A plain text file is not one `aes-256-gcm` decrypts, so adding a key with that algorithm to a store that had none clears it, which is what the option says of a file the store cannot read.
 	it('clears a plain text file an `aes-256-gcm` key cannot read', () => {
 		const cwd = createTempDirectory();
-		fs.writeFileSync(path.join(cwd, 'config.json'), JSON.stringify({a: 1}));
+		fs.writeFileSync(path.join(cwd, 'config.jsonl'), toJsonLines({a: 1}));
 		const conf = new Conf<Store>({
 			cwd,
 			encryptionKey: 'key',
@@ -537,7 +548,7 @@ describe('a config file a read could not read', () => {
 describe('a damaged config file the `clearInvalidConfig` option clears', () => {
 	it('allows a migration to supply a required field after clearing a corrupt file', () => {
 		const cwd = createTempDirectory();
-		fs.writeFileSync(path.join(cwd, 'config.json'), '{corrupt');
+		fs.writeFileSync(path.join(cwd, 'config.jsonl'), '{corrupt');
 		let runs = 0;
 		const conf = new Conf<{port: number}>({
 			cwd,
@@ -559,7 +570,7 @@ describe('a damaged config file the `clearInvalidConfig` option clears', () => {
 
 	it('rejects a cleared store the migrations leave without a required field', () => {
 		const cwd = createTempDirectory();
-		const configPath = path.join(cwd, 'config.json');
+		const configPath = path.join(cwd, 'config.jsonl');
 		fs.writeFileSync(configPath, '{corrupt');
 		let runs = 0;
 		assert.throws(() => new Conf<{port: number}>({
@@ -581,8 +592,8 @@ describe('a damaged config file the `clearInvalidConfig` option clears', () => {
 	// A file that cannot be parsed holds no bookkeeping to keep, and the store the option leaves behind is an existing file with no recorded version, which is migrated the way any other one is. The migrations run once over the store that was cleared, which holds what the `defaults` option and the `default`s of the schema give it and nothing of what the file held, and the version the pass reached is recorded as any other one is.
 	it('runs the migrations again over the store it cleared, and records the version', () => {
 		const cwd = createTempDirectory();
-		const configPath = path.join(cwd, 'config.json');
-		fs.writeFileSync(configPath, JSON.stringify({__internal__: {migrations: {version: '1.0.0'}}, foo: 'bar'}));
+		const configPath = path.join(cwd, 'config.jsonl');
+		fs.writeFileSync(configPath, toJsonLines({__internal__: {migrations: {version: '1.0.0'}}, foo: 'bar'}));
 
 		const runs: string[] = [];
 		const migrations = {
@@ -620,7 +631,7 @@ describe('a damaged config file the `clearInvalidConfig` option clears', () => {
 
 	it('runs them over a store the `defaults` and the `schema` option have filled in, which is not an empty one', () => {
 		const cwd = createTempDirectory();
-		fs.writeFileSync(path.join(cwd, 'config.json'), '{ this is not JSON');
+		fs.writeFileSync(path.join(cwd, 'config.jsonl'), '{ this is not JSON');
 
 		let seen: unknown;
 
@@ -644,7 +655,7 @@ describe('a damaged config file the `clearInvalidConfig` option clears', () => {
 describe('clearing an invalid config that has migrations', () => {
 	it('keeps the recorded version when a read clears a file the schema rejects', () => {
 		const conf = new Conf<Store>({cwd: createTempDirectory(), clearInvalidConfig: true, schema: {port: {type: 'number'}}});
-		fs.writeFileSync(conf.path, JSON.stringify({port: 'oops', __internal__: {migrations: {version: '2.0.0'}}}));
+		fs.writeFileSync(conf.path, toJsonLines({port: 'oops', __internal__: {migrations: {version: '2.0.0'}}}));
 
 		assert.strictEqual(conf.get('port'), undefined);
 		assert.strictEqual(getMigrationVersion(conf), '2.0.0');
@@ -654,7 +665,7 @@ describe('clearing an invalid config that has migrations', () => {
 
 	it('clears a config the schema still rejects after the migrations', () => {
 		const cwd = createTempDirectory();
-		fs.writeFileSync(path.join(cwd, 'config.json'), JSON.stringify({port: 'oops'}));
+		fs.writeFileSync(path.join(cwd, 'config.jsonl'), toJsonLines({port: 'oops'}));
 		const conf = new Conf({
 			cwd,
 			clearInvalidConfig: true,
@@ -672,7 +683,7 @@ describe('clearing an invalid config that has migrations', () => {
 
 	it('leaves a config the migrations repaired alone', () => {
 		const cwd = createTempDirectory();
-		fs.writeFileSync(path.join(cwd, 'config.json'), JSON.stringify({port: '8080'}));
+		fs.writeFileSync(path.join(cwd, 'config.jsonl'), toJsonLines({port: '8080'}));
 		const conf = new Conf({
 			cwd,
 			clearInvalidConfig: true,
@@ -689,7 +700,7 @@ describe('clearing an invalid config that has migrations', () => {
 
 	it('still reports a config the schema rejects when the config is not cleared', () => {
 		const cwd = createTempDirectory();
-		fs.writeFileSync(path.join(cwd, 'config.json'), JSON.stringify({port: 'oops'}));
+		fs.writeFileSync(path.join(cwd, 'config.jsonl'), toJsonLines({port: 'oops'}));
 		assert.throws(() => new Conf({
 			cwd,
 			schema,
@@ -700,7 +711,7 @@ describe('clearing an invalid config that has migrations', () => {
 				},
 			},
 		}), {message: /Config schema violation/});
-		assert.deepStrictEqual(readConfigFile(path.join(cwd, 'config.json')), {port: 'oops'});
+		assert.deepStrictEqual(readConfigFile(path.join(cwd, 'config.jsonl')), {port: 'oops'});
 	});
 
 	it('keeps the recorded version, so a migration is not run again', () => {
@@ -749,10 +760,10 @@ describe('the `clearInvalidConfig` option', () => {
 
 	it('`clearInvalidConfig` option - schema validation error', () => {
 		const temporaryDirectoryPath = createTempDirectory();
-		const configPath = path.join(temporaryDirectoryPath, 'config.json');
+		const configPath = path.join(temporaryDirectoryPath, 'config.jsonl');
 
 		// Create config file with invalid schema data
-		fs.writeFileSync(configPath, JSON.stringify({myKey: 'invalid-type'}, null, '\t'));
+		fs.writeFileSync(configPath, toJsonLines({myKey: 'invalid-type'}));
 		fs.statSync(configPath);
 
 		// Without clearInvalidConfig, should throw

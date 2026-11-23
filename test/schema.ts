@@ -11,19 +11,14 @@ import {
 	resetTrackedConfs,
 	createNullProtoObject,
 	readConfigFile,
+	createExistingConfig,
+	toJsonLines,
 	getMigrationVersion,
 	configDirectoryHolding,
 } from './_utilities.js';
 
 const withRootSchema = <T extends Record<string, any>>(rootSchema: Record<string, unknown>, rest: Record<string, unknown> = {}) =>
 	new Conf<T>({cwd: createTempDirectory(), rootSchema, ...rest});
-
-/**
-Write a config file, so the store is one that already exists.
-*/
-const writeConfigFile = (cwd: string, contents: string): void => {
-	fs.writeFileSync(path.join(cwd, 'config.json'), contents);
-};
 
 afterEach(() => {
 	resetTrackedConfs();
@@ -139,8 +134,8 @@ describe('a store the validator changes below the top level', () => {
 	// The copy the `defaults` are filled into is a shallow one, so a nested object the validator changes in place is shared with the file it came from, and the comparison that decides whether to write finds nothing to write.
 	it('writes a default the validator inserts into a nested object', () => {
 		const cwd = createTempDirectory();
-		const filePath = path.join(cwd, 'config.json');
-		fs.writeFileSync(filePath, JSON.stringify({a: {}}));
+		const filePath = path.join(cwd, 'config.jsonl');
+		fs.writeFileSync(filePath, toJsonLines({a: {}}));
 		const conf = new Conf<{a: {b?: number}}>({
 			cwd,
 			schema: {a: {type: 'object', properties: {b: {type: 'number', default: 7}}}},
@@ -151,8 +146,8 @@ describe('a store the validator changes below the top level', () => {
 
 	it('writes a value the validator coerces in a nested object', () => {
 		const cwd = createTempDirectory();
-		const filePath = path.join(cwd, 'config.json');
-		fs.writeFileSync(filePath, JSON.stringify({a: {n: '42'}}));
+		const filePath = path.join(cwd, 'config.jsonl');
+		fs.writeFileSync(filePath, toJsonLines({a: {n: '42'}}));
 		const conf = new Conf<{a: {n?: number}}>({
 			cwd,
 			schema: {a: {type: 'object', properties: {n: {type: 'number'}}}},
@@ -164,8 +159,8 @@ describe('a store the validator changes below the top level', () => {
 
 	it('writes an additional key the validator takes out of a nested object', () => {
 		const cwd = createTempDirectory();
-		const filePath = path.join(cwd, 'config.json');
-		fs.writeFileSync(filePath, JSON.stringify({a: {x: 1, junk: 2}}));
+		const filePath = path.join(cwd, 'config.jsonl');
+		fs.writeFileSync(filePath, toJsonLines({a: {x: 1, junk: 2}}));
 		const conf = new Conf({
 			cwd,
 			schema: {a: {type: 'object', additionalProperties: false, properties: {x: {type: 'number'}}}},
@@ -177,8 +172,8 @@ describe('a store the validator changes below the top level', () => {
 
 	it('leaves a file the validator changes nothing in as it is', () => {
 		const cwd = createTempDirectory();
-		const filePath = path.join(cwd, 'config.json');
-		const contents = JSON.stringify({a: {x: 1}}, undefined, '\t');
+		const filePath = path.join(cwd, 'config.jsonl');
+		const contents = toJsonLines({a: {x: 1}});
 		fs.writeFileSync(filePath, contents);
 		const conf = new Conf({cwd, schema: {a: {type: 'object', properties: {x: {type: 'number'}}}}});
 		assert.strictEqual(fs.readFileSync(filePath, 'utf8'), contents);
@@ -256,7 +251,7 @@ describe('schema keywords', () => {
 		// Without defaults, replacing the store with an object that drops
 		// the required key throws.
 		const cwd = createTempDirectory();
-		fs.writeFileSync(path.join(cwd, 'config.json'), JSON.stringify({name: 'ada'}));
+		createExistingConfig(cwd, {name: 'ada'});
 		const conf = new Conf({
 			cwd,
 			schema: {name: {type: 'string'}},
@@ -371,7 +366,7 @@ describe('schema keywords', () => {
 
 	it('invalid pre-existing file fails at construction without clearInvalidConfig', () => {
 		const cwd = createTempDirectory();
-		fs.writeFileSync(path.join(cwd, 'config.json'), JSON.stringify({n: 'bad'}));
+		createExistingConfig(cwd, {n: 'bad'});
 		assert.throws(() => {
 			new Conf({cwd, schema: {n: {type: 'number'}}});
 		}, {message: /Config schema violation/});
@@ -444,7 +439,7 @@ describe('schema keywords', () => {
 
 	it('ajv coerceTypes converts compatible scalars', () => {
 		const cwd = createTempDirectory();
-		fs.writeFileSync(path.join(cwd, 'config.json'), JSON.stringify({port: '8080'}));
+		createExistingConfig(cwd, {port: '8080'});
 		const conf = new Conf({
 			cwd,
 			schema: {port: {type: 'number'}},
@@ -522,7 +517,7 @@ describe('schema combinators', () => {
 
 	it('supports dependentRequired at the root', () => {
 		const cwd = createTempDirectory();
-		fs.writeFileSync(path.join(cwd, 'config.json'), JSON.stringify({card: '1234', cvv: '999'}));
+		createExistingConfig(cwd, {card: '1234', cvv: '999'});
 		const conf = new Conf({
 			cwd,
 			schema: {card: {type: 'string'}, cvv: {type: 'string'}},
@@ -1096,7 +1091,7 @@ describe('`useDefaults: "empty"`', () => {
 
 	const storeWith = (data: unknown, useDefaults: boolean | 'empty'): Conf<Record<string, any>> => {
 		const cwd = createTempDirectory();
-		fs.writeFileSync(path.join(cwd, 'config.json'), JSON.stringify(data));
+		createExistingConfig(cwd, data);
 		return new Conf({cwd, schema, ajvOptions: {useDefaults}});
 	};
 
@@ -1115,7 +1110,7 @@ describe('`useDefaults: "empty"`', () => {
 
 		for (const useDefaults of [true, 'empty'] as const) {
 			const cwd = createTempDirectory();
-			fs.writeFileSync(path.join(cwd, 'config.json'), JSON.stringify({a: {c: 1}}));
+			createExistingConfig(cwd, {a: {c: 1}});
 			const conf = new Conf<Record<string, any>>({cwd, schema: nested, ajvOptions: {useDefaults}});
 			assert.deepStrictEqual({...conf.store}, {a: {c: 1, b: 7}}, `with \`useDefaults: ${JSON.stringify(useDefaults)}\``);
 		}
@@ -1158,7 +1153,7 @@ describe('`removeAdditional` and the bookkeeping key', () => {
 	] as Array<[string, boolean | 'all' | 'failing']>) {
 		it(`keeps the recorded version in the file, with ${name}`, () => {
 			const cwd = createTempDirectory();
-			fs.writeFileSync(path.join(cwd, 'config.json'), JSON.stringify({}));
+			createExistingConfig(cwd, {});
 
 			let runs = 0;
 			const make = (): Conf<Record<string, any>> => new Conf({
@@ -1341,21 +1336,21 @@ describe('a `schema` key that is not a key of its own', () => {
 describe('a schema violation that is about a key', () => {
 	it('names the key an additional property is refused for', () => {
 		const cwd = createTempDirectory();
-		writeConfigFile(cwd, JSON.stringify({old: true, other: 2}));
+		createExistingConfig(cwd, {old: true, other: 2});
 
 		assert.throws(() => new Conf({cwd, rootSchema: {additionalProperties: false}}), {message: 'Config schema violation: `old` must NOT have additional properties; `other` must NOT have additional properties'});
 	});
 
 	it('names the key an additional property is refused for below the root', () => {
 		const cwd = createTempDirectory();
-		writeConfigFile(cwd, JSON.stringify({nested: {x: 1, y: 2}}));
+		createExistingConfig(cwd, {nested: {x: 1, y: 2}});
 
 		assert.throws(() => new Conf({cwd, schema: {nested: {type: 'object', additionalProperties: false}}}), {message: 'Config schema violation: `nested/x` must NOT have additional properties; `nested/y` must NOT have additional properties'});
 	});
 
 	it('names the key an additional property is refused for under a key holding a slash', () => {
 		const cwd = createTempDirectory();
-		writeConfigFile(cwd, JSON.stringify({'a/b': {c: 1}}));
+		createExistingConfig(cwd, {'a/b': {c: 1}});
 
 		// The validator writes the path as a JSON pointer, so the slash in the key is escaped there and read back here.
 		assert.throws(() => new Conf({cwd, schema: {'a/b': {type: 'object', additionalProperties: false}}}), {message: 'Config schema violation: `a/b/c` must NOT have additional properties'});
@@ -1363,21 +1358,21 @@ describe('a schema violation that is about a key', () => {
 
 	it('names the key a property name is refused for', () => {
 		const cwd = createTempDirectory();
-		writeConfigFile(cwd, JSON.stringify({Bad: 1}));
+		createExistingConfig(cwd, {Bad: 1});
 
 		assert.throws(() => new Conf({cwd, rootSchema: {propertyNames: {pattern: '^[a-z]+$'}}, schema: {}}), {message: /`Bad`/});
 	});
 
 	it('names the key an unevaluated property is refused for', () => {
 		const cwd = createTempDirectory();
-		writeConfigFile(cwd, JSON.stringify({known: 1, extra: 2}));
+		createExistingConfig(cwd, {known: 1, extra: 2});
 
 		assert.throws(() => new Conf({cwd, rootSchema: {unevaluatedProperties: false}, schema: {known: {type: 'number'}}}), {message: /`extra`/});
 	});
 
 	it('names the key a missing property is reported for', () => {
 		const cwd = createTempDirectory();
-		writeConfigFile(cwd, JSON.stringify({}));
+		createExistingConfig(cwd, {});
 
 		assert.throws(() => new Conf({cwd, rootSchema: {required: ['needed']}, schema: {}}), {message: /must have required property 'needed'/});
 	});
@@ -1454,12 +1449,12 @@ describe('the `schema` option', () => {
 		};
 
 		const cwd = createTempDirectory();
-		fs.writeFileSync(path.join(cwd, 'config.json'), JSON.stringify({
+		createExistingConfig(cwd, {
 			'a/b': 'x',
 			'c~d': 'x',
 			'e~1f': 'x',
 			'g~0h': 'x',
-		}));
+		});
 		assert.throws(() => new Conf({
 			cwd,
 			schema,
@@ -1519,8 +1514,8 @@ describe('the `schema` option', () => {
 		const cwd = createTempDirectory();
 
 		const conf = new Conf({cwd, schema});
-		const schemaPath = path.join(cwd, 'config.json');
-		fs.writeFileSync(schemaPath, JSON.stringify({foo: 1}));
+		const schemaPath = path.join(cwd, 'config.jsonl');
+		fs.writeFileSync(schemaPath, toJsonLines({foo: 1}));
 		fs.statSync(schemaPath);
 		assert.throws(() => {
 			conf.get('foo');
@@ -1590,7 +1585,7 @@ describe('the `rootSchema` option', () => {
 	for (const key of ['constructor', 'a[x']) {
 		it(`overrides the schema default for the literal key ${key}`, () => {
 			const cwd = createTempDirectory();
-			writeConfigFile(cwd, JSON.stringify({[key]: null}));
+			createExistingConfig(cwd, {[key]: null});
 			const conf = new Conf({
 				cwd,
 				accessPropertiesByDotNotation: false,

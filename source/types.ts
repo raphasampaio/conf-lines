@@ -328,12 +328,12 @@ export type Options<T extends Record<string, any>> = {
 
 	You would usually not need this, but it could be useful if you want to interact with a file with a custom file extension that can be associated with your app. These might be simple save/export/preference files that are intended to be shareable or saved outside of the app.
 
-	@default 'json'
+	@default 'jsonl'
 	*/
 	fileExtension?: string;
 
 	/**
-	The config is cleared if reading the config file causes a `SyntaxError` (malformed JSON, also when thrown by your own `deserialize`), a schema validation error when using the `schema` option, or a decryption failure when using `encryptionKey`, and the cleared store is written over the file. This is a good behavior for unimportant data, as the config file is not intended to be hand-edited, so it usually means the config is corrupt and there's nothing the user can do about it anyway. However, if you let the user edit the config file directly, mistakes might happen and it could be more useful to throw an error when the config is invalid instead of clearing.
+	The config is cleared if reading the config file causes a `SyntaxError` (malformed JSON Lines, also when thrown by your own `deserialize`), a schema validation error when using the `schema` option, or a decryption failure when using `encryptionKey`, and the cleared store is written over the file. This is a good behavior for unimportant data, as the config file is not intended to be hand-edited, so it usually means the config is corrupt and there's nothing the user can do about it anyway. However, if you let the user edit the config file directly, mistakes might happen and it could be more useful to throw an error when the config is invalid instead of clearing.
 
 	A decryption failure includes a changed `encryptionKey` or `encryptionAlgorithm`, and a plaintext config file read with the `aes-256-gcm` or `aes-256-ctr` algorithm (for example, after adding encryption to an existing store). With your own `deserialize` and the `aes-256-cbc` or `aes-256-ctr` algorithm, a changed `encryptionKey` or `encryptionAlgorithm` is cleared only when your `deserialize` throws a `SyntaxError` for the data it cannot read, since those algorithms cannot tell a wrong key apart from damaged data. Any other error thrown by your own `deserialize` is thrown as is.
 
@@ -344,18 +344,18 @@ export type Options<T extends Record<string, any>> = {
 	/**
 	Function to serialize the config object to a UTF-8 string, or to a `Uint8Array`, when writing the config file.
 
-	You would usually not need this, but it could be useful if you want to use a format other than JSON.
+	You would usually not need this, but it could be useful if you want to use a format other than JSON Lines.
 
-	@default value => JSON.stringify(value, null, '\t')
+	@default Each top-level key as its own `{"key":value}` line
 	*/
 	readonly serialize?: Serialize<T>;
 
 	/**
 	Function to deserialize the config object from a UTF-8 string when reading the config file.
 
-	You would usually not need this, but it could be useful if you want to use a format other than JSON.
+	You would usually not need this, but it could be useful if you want to use a format other than JSON Lines.
 
-	@default `JSON.parse`, ignoring a leading byte order mark
+	@default `JSON.parse` of each line, merged into one object, ignoring blank lines and a leading byte order mark
 	*/
 	readonly deserialize?: Deserialize<T>;
 

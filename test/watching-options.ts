@@ -1,6 +1,5 @@
 /* eslint-disable @typescript-eslint/naming-convention -- The keys of a `patternProperties` and the versions a `migrations` option is keyed by are the ones the caller wrote, and neither is a name in this module. */
 import fs from 'node:fs';
-import path from 'node:path';
 import {describe, it, afterEach} from 'node:test';
 import assert from 'node:assert/strict';
 import Conf from '../source/index.js';
@@ -14,6 +13,8 @@ import {
 	untilQuiet,
 	getMigrationVersion,
 	settle,
+	toJsonLines,
+	createExistingConfig,
 } from './_utilities.js';
 
 /**
@@ -77,7 +78,7 @@ describe('`watch` with every other option', {skip: skipWatching}, () => {
 		await checkThreeProperties(
 			{schema: {own: {type: 'number'}, other: {type: 'string'}}},
 			configPath => {
-				fs.writeFileSync(configPath, JSON.stringify({own: 2, other: 'a string'}, undefined, '\t'));
+				fs.writeFileSync(configPath, toJsonLines({own: 2, other: 'a string'}));
 			},
 			2,
 		);
@@ -94,7 +95,7 @@ describe('`watch` with every other option', {skip: skipWatching}, () => {
 				},
 			},
 			configPath => {
-				fs.writeFileSync(configPath, JSON.stringify({own: 2, thing: {inner: 'a string'}}, undefined, '\t'));
+				fs.writeFileSync(configPath, toJsonLines({own: 2, thing: {inner: 'a string'}}));
 			},
 			2,
 		);
@@ -104,7 +105,7 @@ describe('`watch` with every other option', {skip: skipWatching}, () => {
 		await checkThreeProperties(
 			{schema: {own: {type: 'number'}}, ajvOptions: {coerceTypes: true, useDefaults: false}},
 			configPath => {
-				fs.writeFileSync(configPath, JSON.stringify({own: 2}, undefined, '\t'));
+				fs.writeFileSync(configPath, toJsonLines({own: 2}));
 			},
 			2,
 		);
@@ -114,7 +115,7 @@ describe('`watch` with every other option', {skip: skipWatching}, () => {
 		await checkThreeProperties(
 			{defaults: {filled: 'from the option'}, schema: {own: {type: 'number'}}},
 			configPath => {
-				fs.writeFileSync(configPath, JSON.stringify({own: 2, filled: 'from the file'}, undefined, '\t'));
+				fs.writeFileSync(configPath, toJsonLines({own: 2, filled: 'from the file'}));
 			},
 			2,
 		);
@@ -150,7 +151,7 @@ describe('`watch` with every other option', {skip: skipWatching}, () => {
 		await checkThreeProperties(
 			{configFileMode: 0o600},
 			configPath => {
-				fs.writeFileSync(configPath, JSON.stringify({own: 2}, undefined, '\t'));
+				fs.writeFileSync(configPath, toJsonLines({own: 2}));
 			},
 			2,
 		);
@@ -160,7 +161,7 @@ describe('`watch` with every other option', {skip: skipWatching}, () => {
 		await checkThreeProperties(
 			{configName: 'nested/config'},
 			configPath => {
-				fs.writeFileSync(configPath, JSON.stringify({own: 2}, undefined, '\t'));
+				fs.writeFileSync(configPath, toJsonLines({own: 2}));
 			},
 			2,
 		);
@@ -170,7 +171,7 @@ describe('`watch` with every other option', {skip: skipWatching}, () => {
 		await checkThreeProperties(
 			{fileExtension: 'yaml'},
 			configPath => {
-				fs.writeFileSync(configPath, JSON.stringify({own: 2}, undefined, '\t'));
+				fs.writeFileSync(configPath, toJsonLines({own: 2}));
 			},
 			2,
 		);
@@ -180,7 +181,7 @@ describe('`watch` with every other option', {skip: skipWatching}, () => {
 		await checkThreeProperties(
 			{accessPropertiesByDotNotation: false, schema: {own: {type: 'number'}}},
 			configPath => {
-				fs.writeFileSync(configPath, JSON.stringify({own: 2}, undefined, '\t'));
+				fs.writeFileSync(configPath, toJsonLines({own: 2}));
 			},
 			2,
 		);
@@ -194,7 +195,7 @@ describe('`watch` with every other option', {skip: skipWatching}, () => {
 			cwd,
 			watch: true,
 			cache: true,
-			serialize: value => answerWithSomethingElse ? 'not a store at all' : JSON.stringify(value, undefined, '\t'),
+			serialize: value => answerWithSomethingElse ? 'not a store at all' : toJsonLines(value),
 		}));
 		let reported = 0;
 		conf.events.addEventListener('change', () => {
@@ -215,7 +216,7 @@ describe('`watch` with every other option', {skip: skipWatching}, () => {
 
 		answerWithSomethingElse = false;
 		const change = nextChange(conf);
-		fs.writeFileSync(conf.path, JSON.stringify({own: 3}, undefined, '\t'));
+		fs.writeFileSync(conf.path, toJsonLines({own: 3}));
 		await change;
 		await untilQuiet(() => reported);
 
@@ -267,7 +268,7 @@ describe('`watch` with every other option', {skip: skipWatching}, () => {
 
 		// The watcher is still there after the change it could not read, and reports the next one.
 		change = nextChange(watcher);
-		fs.writeFileSync(watcher.path, JSON.stringify({own: 2}, undefined, '\t'));
+		fs.writeFileSync(watcher.path, toJsonLines({own: 2}));
 		await change;
 		assert.deepStrictEqual(reported, [[1, undefined], [2, 1]], 'the change after it is reported');
 	});
@@ -306,7 +307,7 @@ describe('`watch` with every other option', {skip: skipWatching}, () => {
 
 			// The watcher is still there after the change it could not read, and reports the next one.
 			change = nextChange(conf);
-			fs.writeFileSync(conf.path, JSON.stringify({a: 2}, undefined, '\t'));
+			fs.writeFileSync(conf.path, toJsonLines({a: 2}));
 			await change;
 			assert.strictEqual(conf.get('a'), 2, `the store reads the change after it, with ${name}`);
 		});
@@ -339,7 +340,7 @@ describe('`watch` with `migrations`', {skip: skipWatching}, () => {
 	it('leaves a migration write unreported and keeps the version it records', async () => {
 		const cwd = createTempDirectory();
 		// A store that does not exist yet skips its migrations, so the file is made the way one that has been opened before leaves it.
-		fs.writeFileSync(path.join(cwd, 'config.json'), JSON.stringify({old: true}, undefined, '\t'));
+		createExistingConfig(cwd, {old: true});
 
 		let reported = 0;
 		const conf = trackConf(new Conf<Record<string, unknown>>({
@@ -364,7 +365,7 @@ describe('`watch` with `migrations`', {skip: skipWatching}, () => {
 		assert.strictEqual(getMigrationVersion(conf), '2.0.0', 'the version the migration recorded survived');
 
 		const change = nextChange(conf);
-		fs.writeFileSync(conf.path, JSON.stringify({old: true, migrated: true, added: 1}, undefined, '\t'));
+		fs.writeFileSync(conf.path, toJsonLines({old: true, migrated: true, added: 1}));
 		await change;
 		await untilQuiet(() => reported);
 

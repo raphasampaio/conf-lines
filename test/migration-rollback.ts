@@ -16,6 +16,8 @@ import {
 	createMigrationOrderTracker,
 	runRegisteredCleanups,
 	skipAsRoot,
+	toJsonLines,
+	fromJsonLines,
 } from './_utilities.js';
 
 afterEach(() => {
@@ -28,7 +30,7 @@ describe('a migration step that leaves a file carrying the encrypted separator',
 	it('rolls the step back over bytes that are not text', () => {
 		const cwd = createTempDirectory();
 		createExistingConfig(cwd, {seed: 1});
-		const filePath = path.join(cwd, 'config.json');
+		const filePath = path.join(cwd, 'config.jsonl');
 		const before = readConfigFile(filePath) as Record<string, unknown>;
 		const unreadable = Buffer.concat([
 			Buffer.from('0123456789abcdef'),
@@ -59,11 +61,11 @@ describe('a migration step that leaves a file the store cannot read', () => {
 	// The rollback is what the error message promises, so it is written over a file the failed step left unreadable. The backup here is the one the caller was promised is put back.
 	for (const [name, options] of [
 		['a `serialize` that writes something unreadable', {
-			serialize: (value: Record<string, unknown>) => ('half' in value ? 'not json at all' : JSON.stringify(value, undefined, '\t')),
+			serialize: (value: Record<string, unknown>) => ('half' in value ? 'not json at all' : toJsonLines(value)),
 		}],
 		['a `deserialize` that refuses the store the step wrote', {
 			deserialize(text: string) {
-				const store = JSON.parse(text) as Record<string, unknown>;
+				const store = fromJsonLines(text);
 				if ('half' in store) {
 					throw new SyntaxError('cannot read a migrated store');
 				}
@@ -76,7 +78,7 @@ describe('a migration step that leaves a file the store cannot read', () => {
 			it(`rolls the step back over one ${name}, with clearInvalidConfig: ${String(clearInvalidConfig)}`, () => {
 				const cwd = createTempDirectory();
 				createExistingConfig(cwd, {seed: 1});
-				const before = fs.readFileSync(path.join(cwd, 'config.json'), 'utf8');
+				const before = fs.readFileSync(path.join(cwd, 'config.jsonl'), 'utf8');
 
 				assert.throws(() => new Conf<Record<string, unknown>>({
 					cwd,
@@ -95,7 +97,7 @@ describe('a migration step that leaves a file the store cannot read', () => {
 				const conf = new Conf<Record<string, unknown>>({cwd, clearInvalidConfig: true, ...options});
 				assert.strictEqual(conf.get('seed'), 1, 'the store the step started from');
 				assert.strictEqual(conf.get('half'), undefined, 'the step that failed');
-				assert.deepStrictEqual(fs.readFileSync(path.join(cwd, 'config.json'), 'utf8'), before, 'the file the store held before the step');
+				assert.deepStrictEqual(fs.readFileSync(path.join(cwd, 'config.jsonl'), 'utf8'), before, 'the file the store held before the step');
 			});
 		}
 	}
@@ -105,7 +107,7 @@ describe('a store holding a value that cannot be cloned, over migrations', () =>
 	// The backup that a failed step is rolled back to is the store as it was read, so a value a custom `deserialize` hands back that cannot be copied, such as a function, is held by the backup as it is. A store with such a value opens whether a step runs over it or not, and a step that fails is still rolled back.
 	const deserializeWithAFunction = function (text: string) {
 		return Object.assign(
-			JSON.parse(text) as Record<string, unknown>,
+			fromJsonLines(text),
 			{
 				handler() {},
 			},
@@ -151,7 +153,7 @@ describe('a store holding a value that cannot be cloned, over migrations', () =>
 
 	it('rolls a step that fails back over a store holding a value that cannot be cloned', () => {
 		const cwd = createTempDirectory();
-		const filePath = `${cwd}/config.json`;
+		const filePath = `${cwd}/config.jsonl`;
 		createExistingConfig(cwd, {seed: 1, __internal__: {migrations: {version: '1.0.0'}}});
 
 		assert.throws(() => new Conf<Record<string, unknown>>({
@@ -306,10 +308,10 @@ describe('a failed step and the file', () => {
 			});
 		}, /the last step failed/);
 
-		const data = readConfigFile(path.join(cwd, 'config.json')) as Record<string, unknown>;
+		const data = readConfigFile(path.join(cwd, 'config.jsonl')) as Record<string, unknown>;
 		assert.strictEqual(data.concurrent, 'before the backup');
 		// The version the write above recorded is kept with it, since it is what the file is left holding.
-		assert.strictEqual(getMigrationVersion({path: path.join(cwd, 'config.json')}), '5.0.0');
+		assert.strictEqual(getMigrationVersion({path: path.join(cwd, 'config.jsonl')}), '5.0.0');
 	});
 
 	it('should rewind what another store wrote while the failing step ran, and let its step run again', () => {
@@ -341,10 +343,10 @@ describe('a failed step and the file', () => {
 			});
 		}, /the last step failed/);
 
-		const data = readConfigFile(path.join(cwd, 'config.json')) as Record<string, unknown>;
+		const data = readConfigFile(path.join(cwd, 'config.jsonl')) as Record<string, unknown>;
 		assert.strictEqual(data.concurrent, undefined);
 		// The version is the one the last step that succeeded recorded, not the one the write above recorded.
-		assert.strictEqual(getMigrationVersion({path: path.join(cwd, 'config.json')}), '1.0.0');
+		assert.strictEqual(getMigrationVersion({path: path.join(cwd, 'config.jsonl')}), '1.0.0');
 
 		// The rewind is what puts that store's data back: its step runs again on the next open.
 		const conf = new Conf({
@@ -387,7 +389,7 @@ describe('a failed step and the file', () => {
 		}, /boom/);
 
 		// The file holds the version it held before the step, which is what the rollback puts back.
-		assert.strictEqual(getMigrationVersion({path: path.join(cwd, 'config.json')}), '0.5.0');
+		assert.strictEqual(getMigrationVersion({path: path.join(cwd, 'config.jsonl')}), '0.5.0');
 
 		// A step from before the version the file recorded does not run again, since the rollback rewound to that version rather than to nothing.
 		const ran: string[] = [];
@@ -521,8 +523,8 @@ describe('a failed step', () => {
 	it('migrations - should recover when the file holds a range version from an earlier failure', () => {
 		const cwd = createTempDirectory();
 		fs.writeFileSync(
-			path.join(cwd, 'config.json'),
-			JSON.stringify({__internal__: {migrations: {version: '>=1.0.0'}}}),
+			path.join(cwd, 'config.jsonl'),
+			toJsonLines({__internal__: {migrations: {version: '>=1.0.0'}}}),
 		);
 
 		// This used to throw `Invalid Version: >=1.0.0`, leaving the store impossible to open.
@@ -649,8 +651,9 @@ describe('a failed step', () => {
 describe('a construction that fails', () => {
 	it('migrations error handling - a construction that fails validation leaves the file as it was', () => {
 		const cwd = createTempDirectory();
-		fs.writeFileSync(path.join(cwd, 'config.json'), JSON.stringify({seed: 1, port: 'oops'}));
-		const before = fs.readFileSync(path.join(cwd, 'config.json'));
+		// One line holding both keys, which is not how the store writes them, so a file the store wrote over again would not compare equal.
+		fs.writeFileSync(path.join(cwd, 'config.jsonl'), JSON.stringify({seed: 1, port: 'oops'}));
+		const before = fs.readFileSync(path.join(cwd, 'config.jsonl'));
 
 		const options = {
 			cwd,
@@ -668,13 +671,13 @@ describe('a construction that fails', () => {
 		assert.throws(() => {
 			new Conf<Record<string, unknown>>(options);
 		}, {message: /`port` must be number/});
-		assert.deepStrictEqual(fs.readFileSync(path.join(cwd, 'config.json')), before);
+		assert.deepStrictEqual(fs.readFileSync(path.join(cwd, 'config.jsonl')), before);
 
 		// A retry sees the file as the first attempt found it and fails the same way, since the failed attempt remembered nothing.
 		assert.throws(() => {
 			new Conf<Record<string, unknown>>(options);
 		}, {message: /`port` must be number/});
-		assert.deepStrictEqual(fs.readFileSync(path.join(cwd, 'config.json')), before);
+		assert.deepStrictEqual(fs.readFileSync(path.join(cwd, 'config.jsonl')), before);
 	});
 
 	it('migrations error handling - a construction that fails validation does not leave a new file behind', () => {
@@ -693,7 +696,7 @@ describe('a construction that fails', () => {
 		assert.throws(() => {
 			new Conf<Record<string, unknown>>(options);
 		}, /port/);
-		assert.strictEqual(fs.existsSync(path.join(cwd, 'config.json')), false);
+		assert.strictEqual(fs.existsSync(path.join(cwd, 'config.jsonl')), false);
 	});
 
 	it('migrations error handling - a failed validation restores an encrypted store byte for byte', () => {
@@ -727,7 +730,8 @@ describe('a construction that fails', () => {
 describe('a construction that cannot finish', () => {
 	it('puts back a file the `configFileMode` option leaves read-only, and reports why it could not finish', {skip: process.platform === 'win32' || skipAsRoot}, () => {
 		const cwd = createTempDirectory();
-		const configPath = path.join(cwd, 'config.json');
+		const configPath = path.join(cwd, 'config.jsonl');
+		// One line holding both keys, which is not how the store writes them, so a file the store wrote over again would not compare equal.
 		const original = JSON.stringify({a: 1, __internal__: {migrations: {version: '0.1.0'}}});
 		fs.writeFileSync(configPath, original);
 

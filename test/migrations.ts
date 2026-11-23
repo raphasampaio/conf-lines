@@ -17,6 +17,8 @@ import {
 	createTempDirectory,
 	createNullProtoObject,
 	createExistingConfig,
+	fromJsonLines,
+	toJsonLines,
 	getMigrationVersion,
 	skipAsRoot,
 	readConfigFile,
@@ -183,7 +185,7 @@ describe('Migrations', () => {
 				});
 			}, {message: /`projectVersion` option must be a valid semantic version/});
 
-			assert.deepStrictEqual(readConfigFile(path.join(cwd, 'config.json')), {});
+			assert.deepStrictEqual(readConfigFile(path.join(cwd, 'config.jsonl')), {});
 		});
 
 		it('migrations - a migration key written as a range is treated as a range', () => {
@@ -731,7 +733,7 @@ describe('Migrations', () => {
 				schema: {
 					seed: {type: 'number'},
 				},
-				deserialize: value => Object.freeze(JSON.parse(value)) as Record<string, unknown>,
+				deserialize: value => Object.freeze(fromJsonLines(value)) as Record<string, unknown>,
 				migrations: {
 					'1.0.0'(store) {
 						store.set('seed', 2);
@@ -838,7 +840,7 @@ describe('Migrations', () => {
 			}
 
 			// The value replaces the store, and the key it carries under the module's own name is dropped from it.
-			assert.deepStrictEqual(readConfigFile(path.join(cwd, 'config.json')), {
+			assert.deepStrictEqual(readConfigFile(path.join(cwd, 'config.jsonl')), {
 				other: 1,
 				__internal__: {migrations: {version: '1.0.0'}},
 			});
@@ -863,7 +865,7 @@ describe('Migrations', () => {
 			}
 
 			// The option is refused before the store is read or written, so the file it names is untouched.
-			assert.deepStrictEqual(readConfigFile(path.join(cwd, 'config.json')), {seed: 1});
+			assert.deepStrictEqual(readConfigFile(path.join(cwd, 'config.jsonl')), {seed: 1});
 		});
 
 		it('migrations - a `defaults` key set to `undefined` is a key the option does not name', () => {
@@ -960,7 +962,7 @@ describe('Migrations', () => {
 		it('migrations - data corruption recovery', () => {
 			// Test recovery from malformed JSON
 			const cwd = createTempDirectory();
-			const configPath = path.join(cwd, 'config.json');
+			const configPath = path.join(cwd, 'config.jsonl');
 
 			// Write corrupted JSON directly
 			fs.writeFileSync(configPath, '{"test": "value", invalid json}');
@@ -1208,10 +1210,10 @@ describe('Migrations', () => {
 			});
 
 			// Simulate partial migration by manually setting version
-			const configPath = path.join(cwd, 'config.json');
+			const configPath = path.join(cwd, 'config.jsonl');
 			const data = readConfigFile(configPath);
 			data.__internal__ = {migrations: {version: '1.5.0'}}; // Manually set to intermediate version
-			fs.writeFileSync(configPath, JSON.stringify(data, null, '\t'));
+			fs.writeFileSync(configPath, toJsonLines(data));
 
 			// Should recover and continue from partial state
 			const conf2 = new Conf({
@@ -1316,7 +1318,7 @@ describe('a schema `default` and migrations', () => {
 	const withAndWithoutMigrations = (test: (cwd: string, migrations: MigrationsFixture | undefined) => void): void => {
 		for (const withMigrations of [false, true]) {
 			const cwd = createTempDirectory();
-			fs.writeFileSync(path.join(cwd, 'config.json'), JSON.stringify({}));
+			createExistingConfig(cwd);
 			const migrations = {
 				'1.0.0'(store: Conf<Record<string, any>>) {
 					store.set('migrated', true);
@@ -1345,7 +1347,7 @@ describe('a schema `default` and migrations', () => {
 			const seed = new Conf<Record<string, any>>({cwd, schema});
 			seed.set('a', {});
 			seed.set('unrelated', true);
-			fs.writeFileSync(path.join(cwd, 'config.json'), fs.readFileSync(seed.path));
+			fs.writeFileSync(path.join(cwd, 'config.jsonl'), fs.readFileSync(seed.path));
 
 			const conf = new Conf<Record<string, any>>({
 				cwd,
@@ -1797,7 +1799,7 @@ describe('migration bookkeeping', () => {
 				initialData: {__internal__: {migrations: {version: '0.5.0'}}},
 			});
 
-			const data = readConfigFile(path.join(cwd, 'config.json')) as {__internal__: {migrations: {completedRanges?: string[]}}};
+			const data = readConfigFile(path.join(cwd, 'config.jsonl')) as {__internal__: {migrations: {completedRanges?: string[]}}};
 			assert.deepStrictEqual(data.__internal__.migrations.completedRanges, ['1.x']);
 			assert.strictEqual(conf.get('ran'), true);
 		});
@@ -1919,7 +1921,7 @@ describe('the `migrations` option', () => {
 			{name: 'TypeError'},
 		);
 
-		assert.deepStrictEqual(readConfigFile(path.join(cwd, 'config.json')), {a: 1});
+		assert.deepStrictEqual(readConfigFile(path.join(cwd, 'config.jsonl')), {a: 1});
 	});
 
 	it('takes a `migrations` option that is not passed, or set to nothing, for no migrations', () => {
@@ -1963,13 +1965,13 @@ describe('a `migrations` option that is not an object of steps', () => {
 describe('migration steps', () => {
 	it('migrations - validation should not prevent migrations from running', () => {
 		const temporaryDirectoryPath = createTempDirectory();
-		const configPath = path.join(temporaryDirectoryPath, 'config.json');
+		const configPath = path.join(temporaryDirectoryPath, 'config.jsonl');
 
 		// Create config with data that violates schema but can be fixed by migration
-		fs.writeFileSync(configPath, JSON.stringify({
+		fs.writeFileSync(configPath, toJsonLines({
 			age: '25', // String instead of number - violates schema
 			active: 'true', // String instead of boolean - violates schema
-		}, null, '\t'));
+		}));
 
 		// Migration should run BEFORE validation, allowing it to fix the invalid data
 		const conf = new Conf({
@@ -2001,7 +2003,7 @@ describe('migration steps', () => {
 
 	it('supports append, rename and delete inside migrations', () => {
 		const cwd = createTempDirectory();
-		fs.writeFileSync(path.join(cwd, 'config.json'), JSON.stringify({old: 'x', array: [1]}));
+		createExistingConfig(cwd, {old: 'x', array: [1]});
 		const conf = new Conf({
 			cwd,
 			projectVersion: '2.0.0',

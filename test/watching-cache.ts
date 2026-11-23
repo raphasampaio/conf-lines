@@ -13,6 +13,7 @@ import {
 	nextChange,
 	settle,
 	untilWatching,
+	toJsonLines,
 } from './_utilities.js';
 
 afterEach(() => {
@@ -45,7 +46,7 @@ describe('a caching store that watches', () => {
 		assert.strictEqual(conf.get('a'), 1, 'the cached value');
 
 		// The file changes and the watcher is closed before the report is made, which is what closing it right after another process wrote is.
-		fs.writeFileSync(conf.path, JSON.stringify({a: 2}));
+		fs.writeFileSync(conf.path, toJsonLines({a: 2}));
 		conf._closeWatcher();
 
 		assert.strictEqual(conf.get('a'), 2, 'the value the file holds');
@@ -60,7 +61,7 @@ describe('a caching store that watches', () => {
 		conf._closeWatcher();
 
 		// Nothing watches the file any more, so a change made to it now is one the store reads from the file rather than from a cache it kept from before the watcher was closed.
-		fs.writeFileSync(conf.path, JSON.stringify({a: 2}));
+		fs.writeFileSync(conf.path, toJsonLines({a: 2}));
 		assert.strictEqual(conf.get('a'), 2, 'the value the file holds after the watcher is closed');
 	});
 

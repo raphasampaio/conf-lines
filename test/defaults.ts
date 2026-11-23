@@ -11,6 +11,7 @@ import {
 	resetTrackedConfs,
 	createNullProtoObject,
 	readConfigFile,
+	toJsonLines,
 	Money,
 	price,
 } from './_utilities.js';
@@ -258,7 +259,7 @@ describe('a `defaults` path the schema does not know the keys of', () => {
 
 	it('is still refused where a key on the way to it cannot hold properties', () => {
 		const cwd = createTempDirectory();
-		fs.writeFileSync(path.join(cwd, 'config.json'), JSON.stringify({a: 'a value the path cannot go into'}));
+		fs.writeFileSync(path.join(cwd, 'config.jsonl'), toJsonLines({a: 'a value the path cannot go into'}));
 		const conf = new Conf<Record<string, any>>({cwd, schema: {a: {type: 'string'}}, defaults: pathDefault});
 		assert.deepStrictEqual({...conf.store}, {a: 'a value the path cannot go into'});
 	});
@@ -299,7 +300,7 @@ describe('filling in the `defaults` option', () => {
 
 	it('stored values win over defaults', () => {
 		const cwd = createTempDirectory();
-		fs.writeFileSync(path.join(cwd, 'config.json'), JSON.stringify({a: 99}));
+		fs.writeFileSync(path.join(cwd, 'config.jsonl'), toJsonLines({a: 99}));
 		const conf = new Conf({cwd, defaults: {a: 1, b: 2}});
 		assert.strictEqual(conf.get('a'), 99);
 		assert.strictEqual(conf.get('b'), 2);
@@ -405,7 +406,7 @@ describe('filling in the `defaults` option', () => {
 
 	it('fills a dotted `defaults` key as a path into a store that already exists', () => {
 		const cwd = createTempDirectory();
-		fs.writeFileSync(path.join(cwd, 'config.json'), JSON.stringify({seed: 1}));
+		fs.writeFileSync(path.join(cwd, 'config.jsonl'), toJsonLines({seed: 1}));
 
 		const conf = new Conf({cwd, defaults: {'a.b': 1}});
 		assert.deepStrictEqual(conf.get('a'), {b: 1});
@@ -578,13 +579,13 @@ describe('a `defaults` key an external write dropped', () => {
 	// A read reports what the file holds, and a `defaults` value is written into the file when the store is constructed and on every write, so a file another process wrote without one is a file that does not hold it. Writing it back on a change from elsewhere would be a write on every such change, and the value the caller gave is the one the file is written with.
 	it('is reported as missing, and a `reset()` puts it back', () => {
 		const cwd = createTempDirectory();
-		const configPath = path.join(cwd, 'config.json');
-		fs.writeFileSync(configPath, JSON.stringify({a: 1}));
+		const configPath = path.join(cwd, 'config.jsonl');
+		fs.writeFileSync(configPath, toJsonLines({a: 1}));
 
 		const conf = new Conf<Record<string, any>>({cwd, defaults: {b: 'the default'}});
 		assert.deepStrictEqual(readConfigFile(configPath), {a: 1, b: 'the default'});
 
-		fs.writeFileSync(configPath, JSON.stringify({a: 2}));
+		fs.writeFileSync(configPath, toJsonLines({a: 2}));
 		assert.deepStrictEqual({...conf.store}, {a: 2});
 		assert.strictEqual(conf.has('b'), false);
 		assert.strictEqual(conf.get('b'), undefined);
@@ -633,7 +634,7 @@ describe('a dotted `defaults` key a nested `default` of the schema covers', () =
 
 	it('resets nested defaults when validation stops at a missing required key', () => {
 		const cwd = createTempDirectory();
-		fs.writeFileSync(path.join(cwd, 'config.json'), JSON.stringify({required: 'present'}));
+		fs.writeFileSync(path.join(cwd, 'config.jsonl'), toJsonLines({required: 'present'}));
 		const conf = new Conf<Store>({
 			cwd,
 			schema: {parent: {type: 'object', properties: {child: {type: 'number', default: 2}}}},
@@ -721,7 +722,7 @@ describe('a dotted `defaults` key a nested `default` of the schema covers', () =
 		});
 		assert.strictEqual(conf.get('a.b'), 5);
 
-		fs.writeFileSync(conf.path, JSON.stringify({a: {}}));
+		fs.writeFileSync(conf.path, toJsonLines({a: {}}));
 		assert.strictEqual(conf.get('a.b'), 5);
 
 		conf.set('x', 1);
@@ -738,7 +739,7 @@ describe('a dotted `defaults` key a nested `default` of the schema covers', () =
 describe('the `defaults` option and the schema', () => {
 	it('a `defaults` key set to `undefined` does not rewrite an unchanged store', () => {
 		const cwd = createTempDirectory();
-		fs.writeFileSync(path.join(cwd, 'config.json'), '{}');
+		fs.writeFileSync(path.join(cwd, 'config.jsonl'), '{}');
 		let writes = 0;
 
 		const conf = new Conf({
@@ -758,7 +759,7 @@ describe('the `defaults` option and the schema', () => {
 		const schema: Schema<{a: number}> = {a: {type: 'number'}};
 		const cwd = createTempDirectory();
 
-		fs.writeFileSync(path.join(cwd, 'config.json'), JSON.stringify({keepMe: 'important'}));
+		fs.writeFileSync(path.join(cwd, 'config.jsonl'), toJsonLines({keepMe: 'important'}));
 
 		const conf = new Conf({
 			cwd,
@@ -774,7 +775,7 @@ describe('the `defaults` option and the schema', () => {
 
 	it('writes injected defaults back to an existing validated store', () => {
 		const cwd = createTempDirectory();
-		const configPath = path.join(cwd, 'config.json');
+		const configPath = path.join(cwd, 'config.jsonl');
 		fs.writeFileSync(configPath, '{}');
 
 		const conf = new Conf({
@@ -789,7 +790,7 @@ describe('the `defaults` option and the schema', () => {
 
 	it('validates a required `defaults` key with only a root schema', () => {
 		const cwd = createTempDirectory();
-		fs.writeFileSync(path.join(cwd, 'config.json'), JSON.stringify({keepMe: 'important'}));
+		fs.writeFileSync(path.join(cwd, 'config.jsonl'), toJsonLines({keepMe: 'important'}));
 
 		const conf = new Conf({
 			cwd,
@@ -803,7 +804,7 @@ describe('the `defaults` option and the schema', () => {
 
 	it('validates a required `defaults` key with a boolean property schema', () => {
 		const cwd = createTempDirectory();
-		fs.writeFileSync(path.join(cwd, 'config.json'), JSON.stringify({keepMe: 'important'}));
+		fs.writeFileSync(path.join(cwd, 'config.jsonl'), toJsonLines({keepMe: 'important'}));
 
 		const conf = new Conf({
 			cwd,
@@ -818,7 +819,7 @@ describe('the `defaults` option and the schema', () => {
 
 	it('validates `defaults` before an existing store when AJV defaults are disabled', () => {
 		const cwd = createTempDirectory();
-		fs.writeFileSync(path.join(cwd, 'config.json'), JSON.stringify({keepMe: 'important'}));
+		fs.writeFileSync(path.join(cwd, 'config.jsonl'), toJsonLines({keepMe: 'important'}));
 
 		const conf = new Conf({
 			cwd,
@@ -834,7 +835,7 @@ describe('the `defaults` option and the schema', () => {
 
 	it('clears invalid data before applying defaults when AJV defaults are disabled', () => {
 		const cwd = createTempDirectory();
-		fs.writeFileSync(path.join(cwd, 'config.json'), JSON.stringify({a: 'invalid'}));
+		fs.writeFileSync(path.join(cwd, 'config.jsonl'), toJsonLines({a: 'invalid'}));
 
 		const conf = new Conf({
 			cwd,
@@ -940,7 +941,7 @@ describe('a default whose path the store cannot take', () => {
 
 	it('leaves a value an existing file holds where a default cannot be written into it', () => {
 		const cwd = createTempDirectory();
-		fs.writeFileSync(path.join(cwd, 'config.json'), JSON.stringify({a: 5, other: 'keep'}));
+		fs.writeFileSync(path.join(cwd, 'config.jsonl'), toJsonLines({a: 5, other: 'keep'}));
 		const conf = new Conf<Record<string, any>>({cwd, defaults: {'a.b': 1}});
 		assert.strictEqual(conf.get('a'), 5);
 		assert.strictEqual(conf.get('other'), 'keep');
@@ -1347,7 +1348,7 @@ describe('a `defaults` value the caller changes afterwards', () => {
 			assert.deepStrictEqual(conf.get('n'), {x: 1}, `a whole-store write${label}`);
 
 			// The key is taken out of the file rather than with `delete()`, which is a write and would fill it in itself.
-			fs.writeFileSync(conf.path, JSON.stringify({unrelated: true}));
+			fs.writeFileSync(conf.path, toJsonLines({unrelated: true}));
 			conf.set('unrelated', false);
 			assert.deepStrictEqual(conf.get('n'), {x: 1}, `a set of another key${label}`);
 
@@ -1479,7 +1480,7 @@ describe('the `defaults` object the caller passed, after the store is built', ()
 
 		assert.deepStrictEqual({...one.store}, {a: 1}, 'the store the key was never given does not hold it');
 		assert.deepStrictEqual({...two.store}, {a: 1, touchedTwo: true}, 'nor does the other');
-		assert.deepStrictEqual(readConfigFile(oneDirectory + '/config.json'), {a: 1}, 'and neither file holds it');
+		assert.deepStrictEqual(readConfigFile(oneDirectory + '/config.jsonl'), {a: 1}, 'and neither file holds it');
 	});
 
 	it('still writes a `defaults` key the store does not have, which is what the option is for', () => {
@@ -1765,7 +1766,7 @@ describe('a `default` of the `schema` that a store cannot hold', () => {
 describe('a key another process took out of the file', () => {
 	// The `defaults` option is filled in on a write, which is what `.delete()` is, and a read takes the file as it is. A `default` of the schema is filled in on both, because the validator does it as it reads.
 	const takeTheKeyOut = (cwd: string): void => {
-		fs.writeFileSync(`${cwd}/config.json`, JSON.stringify({kept: true}));
+		fs.writeFileSync(`${cwd}/config.jsonl`, toJsonLines({kept: true}));
 	};
 
 	it('is put back by a read for a `default` of the schema, and not for the `defaults` option', () => {
@@ -1779,8 +1780,8 @@ describe('a key another process took out of the file', () => {
 			defaults: {a: 1},
 		});
 
-		takeTheKeyOut(withSchemaDefault.path.replace(/\/config\.json$/, ''));
-		takeTheKeyOut(withDefaultsOption.path.replace(/\/config\.json$/, ''));
+		takeTheKeyOut(withSchemaDefault.path.replace(/\/config\.jsonl$/, ''));
+		takeTheKeyOut(withDefaultsOption.path.replace(/\/config\.jsonl$/, ''));
 
 		assert.strictEqual(withSchemaDefault.get('a'), 1, 'a `default` of the schema is filled in as the store is read');
 		assert.strictEqual(withDefaultsOption.get('a'), undefined, 'the `defaults` option is filled in by a write, and a read is not one');
@@ -1788,7 +1789,7 @@ describe('a key another process took out of the file', () => {
 
 	it('is put back for the `defaults` option by the next write', () => {
 		const conf = new Conf<Record<string, unknown>>({cwd: createTempDirectory(), defaults: {a: 1}});
-		takeTheKeyOut(conf.path.replace(/\/config\.json$/, ''));
+		takeTheKeyOut(conf.path.replace(/\/config\.jsonl$/, ''));
 		assert.strictEqual(conf.get('a'), undefined);
 
 		conf.set('written', true);
@@ -1983,7 +1984,7 @@ describe('`defaults` and the `schema`', () => {
 		const cwd = createTempDirectory();
 
 		// A store that has run before is read from its config file, and the default inserted for a key the file does not hold has to be the value the option gives rather than the one the schema gives.
-		fs.writeFileSync(path.join(cwd, 'config.json'), '{}');
+		fs.writeFileSync(path.join(cwd, 'config.jsonl'), '{}');
 
 		const conf = new Conf({cwd, defaults: {foo: 'foo'}, schema});
 		assert.strictEqual(conf.get('foo'), 'foo');
@@ -2046,7 +2047,7 @@ describe('a `defaults` key set to `undefined`', () => {
 		store.store = {a: undefined, b: 2};
 
 		assert.deepStrictEqual(store.store, createNullProtoObject({a: 1, b: 2}));
-		assert.deepStrictEqual(readConfigFile(path.join(cwd, 'config.json')), {a: 1, b: 2});
+		assert.deepStrictEqual(readConfigFile(path.join(cwd, 'config.jsonl')), {a: 1, b: 2});
 	});
 });
 

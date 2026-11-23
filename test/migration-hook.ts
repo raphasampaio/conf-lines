@@ -26,7 +26,7 @@ describe('a `beforeEachMigration` that throws', () => {
 	it('leaves the store the file held', () => {
 		const cwd = createTempDirectory();
 		createExistingConfig(cwd, {seed: 1, __internal__: {migrations: {version: '1.0.0'}}});
-		const before = readConfigFile(path.join(cwd, 'config.json'));
+		const before = readConfigFile(path.join(cwd, 'config.jsonl'));
 
 		assert.throws(() => new Conf<Record<string, unknown>>({
 			cwd,
@@ -41,7 +41,7 @@ describe('a `beforeEachMigration` that throws', () => {
 			},
 		}), {message: /Something went wrong during the migration/});
 
-		assert.deepStrictEqual(readConfigFile(path.join(cwd, 'config.json')), before);
+		assert.deepStrictEqual(readConfigFile(path.join(cwd, 'config.jsonl')), before);
 	});
 });
 

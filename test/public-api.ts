@@ -1,6 +1,5 @@
 /* eslint-disable @typescript-eslint/naming-convention */
 import fs from 'node:fs';
-import path from 'node:path';
 import {describe, it, afterEach} from 'node:test';
 import assert from 'node:assert/strict';
 import Conf from '../source/index.js';
@@ -9,6 +8,7 @@ import {
 	resetTrackedConfs,
 	runRegisteredCleanups,
 	readConfigFile,
+	createExistingConfig,
 } from './_utilities.js';
 
 afterEach(() => {
@@ -193,7 +193,7 @@ describe('public API', () => {
 
 		it('is false for the reserved key, which the store does not expose', () => {
 			const cwd = createTempDirectory();
-			fs.writeFileSync(path.join(cwd, 'config.json'), JSON.stringify({__internal__: {migrations: {version: '1.0.0'}}, foo: 1}, undefined, '\t'));
+			createExistingConfig(cwd, {__internal__: {migrations: {version: '1.0.0'}}, foo: 1});
 			const conf = new Conf({cwd});
 
 			assert.ok(!conf.has('__internal__'));
@@ -210,7 +210,7 @@ describe('public API', () => {
 		it('throws for the reserved key instead of rewriting the store with it intact', () => {
 			const cwd = createTempDirectory();
 			// The store keeps its own bookkeeping under a key it reserves for itself, so deleting any part of it would make the next run start over.
-			fs.writeFileSync(path.join(cwd, 'config.json'), JSON.stringify({__internal__: {migrations: {version: '1.0.0'}}, foo: 1}, undefined, '\t'));
+			createExistingConfig(cwd, {__internal__: {migrations: {version: '1.0.0'}}, foo: 1});
 			const conf = new Conf({cwd});
 
 			for (const key of ['__internal__', '__internal__.migrations', '__internal__.migrations.version']) {

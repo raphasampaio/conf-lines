@@ -18,6 +18,8 @@ import {
 	resetTrackedConfs,
 	createNullProtoObject,
 	readConfigFile,
+	toJsonLines,
+	fromJsonLines,
 	getMigrationVersion,
 } from './_utilities.js';
 
@@ -922,11 +924,11 @@ describe('get()', () => {
 
 	it('treats an own `undefined` value as missing in both modes', () => {
 		const cwd = createTempDirectory();
-		fs.writeFileSync(path.join(cwd, 'config.json'), JSON.stringify({seed: 1}));
+		fs.writeFileSync(path.join(cwd, 'config.jsonl'), toJsonLines({seed: 1}));
 
 		// JSON cannot hold a value of `undefined`, but a custom deserializer can hand one back. An own key that holds it counts as missing, so a read gives the default and `has()` reports false, with or without dot notation.
 		const deserialize = (text: string): Record<string, unknown> => {
-			const value = JSON.parse(text) as Record<string, unknown>;
+			const value = fromJsonLines(text);
 			if (!('explicitUndefined' in value)) {
 				value.explicitUndefined = undefined;
 			}
@@ -949,10 +951,10 @@ describe('get()', () => {
 
 	it('leaves an own `undefined` value out of the count and the iteration', () => {
 		const cwd = createTempDirectory();
-		fs.writeFileSync(path.join(cwd, 'config.json'), JSON.stringify({seed: 1}));
+		fs.writeFileSync(path.join(cwd, 'config.jsonl'), toJsonLines({seed: 1}));
 
 		const deserialize = (text: string): Record<string, unknown> => {
-			const value = JSON.parse(text) as Record<string, unknown>;
+			const value = fromJsonLines(text);
 			value.explicitUndefined = undefined;
 			return value;
 		};
@@ -1256,13 +1258,13 @@ describe('has() and delete()', () => {
 		}, {message: /used to manage this module internal operations/});
 
 		// A file another process wrote holds such a key the same way, and writing the store whole keeps it.
-		fs.writeFileSync(path.join(cwd, 'config.json'), JSON.stringify({'__internal__.foo': 2, seed: 3}));
+		fs.writeFileSync(path.join(cwd, 'config.jsonl'), toJsonLines({'__internal__.foo': 2, seed: 3}));
 		assert.strictEqual(conf.get('__internal__.foo'), 2);
 		assert.strictEqual(conf.size, 2);
 
 		conf.store = {'__internal__.foo': 4};
 		assert.strictEqual(conf.get('__internal__.foo'), 4);
-		assert.deepStrictEqual(readConfigFile(path.join(cwd, 'config.json')), {'__internal__.foo': 4});
+		assert.deepStrictEqual(readConfigFile(path.join(cwd, 'config.jsonl')), {'__internal__.foo': 4});
 
 		// The `defaults` option names ordinary keys the same way.
 		const withDefaults = new Conf({
@@ -1895,7 +1897,7 @@ describe('a value that is not a number', () => {
 describe('corners of the API', () => {
 	it('reads a file that holds a byte order mark as text, and clears it as damaged', () => {
 		const cwd = createTempDirectory();
-		fs.writeFileSync(path.join(cwd, 'config.json'), '﻿{corrupt');
+		fs.writeFileSync(path.join(cwd, 'config.jsonl'), '﻿{corrupt');
 
 		// A byte order mark is a text file, so it is one that got damaged and not one whose bytes are something else.
 		const conf = new Conf({cwd, clearInvalidConfig: true});
@@ -2028,7 +2030,7 @@ describe('a subclass of `Conf`', () => {
 		const cwd = createTempDirectory();
 		const store = new CounterStore({cwd});
 		assert.ok(store instanceof Conf);
-		assert.strictEqual(store.path, path.join(cwd, 'counter.json'));
+		assert.strictEqual(store.path, path.join(cwd, 'counter.jsonl'));
 		assert.strictEqual(store.get('count'), 0);
 		assert.strictEqual(store.increment(), 1);
 

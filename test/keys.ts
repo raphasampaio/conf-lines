@@ -13,6 +13,7 @@ import {
 	readConfigFile,
 	dateReviving,
 	getMigrationVersion,
+	createExistingConfig,
 } from './_utilities.js';
 
 type Store = Record<string, any>;
@@ -68,10 +69,10 @@ describe('keys the prototype has', () => {
 
 		assert.strictEqual(conf.size, 3);
 
-		// JSON holds them as own keys, so another instance reads them back the same way.
-		const file = JSON.parse(fs.readFileSync(conf.path, 'utf8'));
+		// The file holds them as own keys, so another instance reads them back the same way.
+		const file = readConfigFile(conf);
 		assert.strictEqual(Object.getOwnPropertyDescriptor(file, '__proto__')?.value?.polluted, true);
-		assert.strictEqual(file.constructor.polluted, true);
+		assert.strictEqual(Object.getOwnPropertyDescriptor(file, 'constructor')?.value?.polluted, true);
 
 		const second = new Conf({cwd, accessPropertiesByDotNotation: false});
 		assert.deepStrictEqual(second.get('constructor'), {polluted: true});
@@ -92,7 +93,7 @@ describe('keys the prototype has', () => {
 
 		// A config file that holds the key must not pollute either, and the key is kept as plain data.
 		const cwd = createTempDirectory();
-		fs.writeFileSync(path.join(cwd, 'config.json'), '{"__proto__": {"polluted": "yes"}}');
+		fs.writeFileSync(path.join(cwd, 'config.jsonl'), '{"__proto__": {"polluted": "yes"}}\n');
 		const fromFile = new Conf({cwd});
 		assert.deepStrictEqual(Object.keys(fromFile.store), ['__proto__']);
 
@@ -532,7 +533,7 @@ describe('reset() of a path the store holds a value in the way of', () => {
 	for (const held of ['a string', 5, null, true]) {
 		it(`replaces a parent that holds ${JSON.stringify(held)}`, () => {
 			const cwd = createTempDirectory();
-			fs.writeFileSync(path.join(cwd, 'config.json'), JSON.stringify({a: held}));
+			createExistingConfig(cwd, {a: held});
 			const conf = new Conf<Record<string, any>>({cwd, defaults: {'a.b': 'the default'}});
 
 			conf.reset('a.b');
@@ -542,7 +543,7 @@ describe('reset() of a path the store holds a value in the way of', () => {
 
 	it('still resets a path the store can take', () => {
 		const cwd = createTempDirectory();
-		fs.writeFileSync(path.join(cwd, 'config.json'), JSON.stringify({a: {c: 1}}));
+		createExistingConfig(cwd, {a: {c: 1}});
 		const conf = new Conf<Record<string, any>>({cwd, defaults: {'a.b': 'the default'}});
 
 		conf.delete('a.b');
@@ -554,7 +555,7 @@ describe('reset() of a path the store holds a value in the way of', () => {
 describe('reset() of a key with nothing to reset', () => {
 	it('leaves a key that has no default alone however the store holds its path', () => {
 		const cwd = createTempDirectory();
-		fs.writeFileSync(path.join(cwd, 'config.json'), JSON.stringify({a: 'text', kept: true}));
+		createExistingConfig(cwd, {a: 'text', kept: true});
 		const conf = new Conf<Record<string, any>>({cwd, defaults: {other: 'DEFAULT'}});
 
 		// There is nothing to write for `a.b`, so the value the store holds at `a` is not a path that has to be written through.
@@ -920,7 +921,7 @@ describe('a key the path parser refuses', () => {
 			config.set('seed', 1);
 
 			// A file cut in the middle, which is what a crash part-way through the in-place write leaves behind, and what a text editor saving over it can leave.
-			const configPath = path.join(cwd, 'config.json');
+			const configPath = path.join(cwd, 'config.jsonl');
 			fs.writeFileSync(configPath, '{"seed": 1');
 			const before = fs.readFileSync(configPath, 'utf8');
 

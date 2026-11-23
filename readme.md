@@ -1,6 +1,8 @@
-# conf
+# conf-lines
 
-> Simple config handling for your app or module
+> Simple JSON Lines config handling for your app or module
+
+A fork of [`conf`](https://github.com/sindresorhus/conf) that stores the config as [JSON Lines](https://jsonlines.org): each top-level key is its own `{"key":value}` line in a `.jsonl` file.
 
 All you have to care about is what to persist. This module will handle all the dull details like where and how.
 
@@ -11,18 +13,18 @@ I initially made this tool to let command-line tools persist some data.
 *If you need this for Electron, check out [`electron-store`](https://github.com/sindresorhus/electron-store) instead.*
 
 > [!NOTE]
-> This is not a database. The entire JSON file is read and written on every change, so it's best suited for small data like user settings that change occasionally. For large data, or for a high rate of changes, use [`node:sqlite`](https://nodejs.org/api/sqlite.html) or similar.
+> This is not a database. The entire JSON Lines file is read and written on every change, so it's best suited for small data like user settings that change occasionally. For large data, or for a high rate of changes, use [`node:sqlite`](https://nodejs.org/api/sqlite.html) or similar.
 
 ## Install
 
 ```sh
-npm install conf
+npm install conf-lines
 ```
 
 ## Usage
 
 ```js
-import Conf from 'conf';
+import Conf from 'conf-lines';
 
 const config = new Conf({projectName: 'foo'});
 
@@ -81,12 +83,12 @@ Type: `object`
 This will be the [`properties`](https://json-schema.org/understanding-json-schema/reference/object.html#properties) object of the JSON schema. That is, define `schema` as an object where each key is the name of your data's property and each value is a JSON schema used to validate that property.
 
 > [!NOTE]
-> The ajv dependency may cause CSP violations. See [Can I use `conf` with strict Content Security Policy (CSP)?](#can-i-use-conf-with-strict-content-security-policy-csp).
+> The ajv dependency may cause CSP violations. See [Can I use `conf-lines` with strict Content Security Policy (CSP)?](#can-i-use-conf-lines-with-strict-content-security-policy-csp).
 
 Example:
 
 ```js
-import Conf from 'conf';
+import Conf from 'conf-lines';
 
 const schema = {
 	foo: {
@@ -122,7 +124,7 @@ config.set('foo', '1');
 To have `get()` return the right types, annotate the schema with `Schema<T>`:
 
 ```ts
-import Conf, {type Schema} from 'conf';
+import Conf, {type Schema} from 'conf-lines';
 
 type Store = {
 	isEnabled: boolean;
@@ -153,7 +155,7 @@ The `properties` keyword comes from the `schema` option. Do not put `properties`
 Example:
 
 ```js
-import Conf from 'conf';
+import Conf from 'conf-lines';
 
 const store = new Conf({
 	projectName: 'foo',
@@ -167,7 +169,7 @@ const store = new Conf({
 Example with `patternProperties`, for when you do not know the key names in advance:
 
 ```js
-import Conf from 'conf';
+import Conf from 'conf-lines';
 
 const store = new Conf({
 	projectName: 'foo',
@@ -198,7 +200,7 @@ Under the hood, the JSON Schema validator [ajv](https://ajv.js.org/json-schema.h
 Example:
 
 ```js
-import Conf from 'conf';
+import Conf from 'conf-lines';
 
 const store = new Conf({
 	projectName: 'foo',
@@ -235,7 +237,7 @@ Migrations do not run for a config file that does not exist yet. There is no old
 Example:
 
 ```js
-import Conf from 'conf';
+import Conf from 'conf-lines';
 
 const store = new Conf({
 	projectName: 'foo',
@@ -282,7 +284,7 @@ This can be useful for logging purposes, preparing migration data, etc.
 Example:
 
 ```js
-import Conf from 'conf';
+import Conf from 'conf-lines';
 
 console.log = someLogger.log;
 
@@ -335,7 +337,7 @@ Type: `string`
 You can fetch the `name` field from package.json:
 
 ```js
-import Conf from 'conf';
+import Conf from 'conf-lines';
 import packageJson from './package.json' with {type: 'json'};
 
 const config = new Conf({projectName: packageJson.name});
@@ -372,7 +374,7 @@ Default: `undefined`
 > [!CAUTION]
 > This is **not intended for security purposes**, since the encryption key would be easily found inside a plaintext Node.js app.
 
-Its main use is for obscurity. If a user looks through the config directory and finds the config file, since it's just a JSON file, they may be tempted to modify it. By providing an encryption key, the file will be obfuscated, which should hopefully deter any users from doing so.
+Its main use is for obscurity. If a user looks through the config directory and finds the config file, since it's just a JSON Lines file, they may be tempted to modify it. By providing an encryption key, the file will be obfuscated, which should hopefully deter any users from doing so.
 
 When using `aes-256-gcm`, the config file is authenticated. If the file is changed in any way, the decryption will fail. With `aes-256-cbc` and `aes-256-ctr`, tampering can go undetected.
 
@@ -394,7 +396,7 @@ When using `aes-256-gcm` or `aes-256-ctr`, existing plaintext config files are n
 #### fileExtension
 
 Type: `string`\
-Default: `'json'`
+Default: `'jsonl'`
 
 Extension of the config file.
 
@@ -405,27 +407,27 @@ You would usually not need this, but it could be useful if you want to interact 
 Type: `boolean`\
 Default: `false`
 
-The config is cleared if reading the config file causes a `SyntaxError` (malformed JSON, also when thrown by your own [`deserialize`](#deserialize)), a schema validation error when using the `schema` option, or a decryption failure when using `encryptionKey`, and the cleared store is written over the file. This is a good behavior for unimportant data, as the config file is not intended to be hand-edited, so it usually means the config is corrupt and there's nothing the user can do about it anyway. However, if you let the user edit the config file directly, mistakes might happen and it could be more useful to throw an error when the config is invalid instead of clearing.
+The config is cleared if reading the config file causes a `SyntaxError` (malformed JSON Lines, also when thrown by your own [`deserialize`](#deserialize)), a schema validation error when using the `schema` option, or a decryption failure when using `encryptionKey`, and the cleared store is written over the file. This is a good behavior for unimportant data, as the config file is not intended to be hand-edited, so it usually means the config is corrupt and there's nothing the user can do about it anyway. However, if you let the user edit the config file directly, mistakes might happen and it could be more useful to throw an error when the config is invalid instead of clearing.
 
 A decryption failure includes a changed `encryptionKey` or `encryptionAlgorithm`, and a plaintext config file read with the `aes-256-gcm` or `aes-256-ctr` algorithm (for example, after adding encryption to an existing store). With your own `deserialize` and the `aes-256-cbc` or `aes-256-ctr` algorithm, a changed `encryptionKey` or `encryptionAlgorithm` is cleared only when your `deserialize` throws a `SyntaxError` for the data it cannot read, since those algorithms cannot tell a wrong key apart from damaged data. Any other error thrown by your own [`deserialize`](#deserialize) is thrown as is.
 
 #### serialize
 
 Type: `Function`\
-Default: `value => JSON.stringify(value, null, '\t')`
+Default: Each top-level key as its own `{"key":value}` line
 
 Function to serialize the config object to a UTF-8 string, or to a `Uint8Array`, when writing the config file.
 
-You would usually not need this, but it could be useful if you want to use a format other than JSON.
+You would usually not need this, but it could be useful if you want to use a format other than JSON Lines.
 
 #### deserialize
 
 Type: `Function`\
-Default: `JSON.parse`, ignoring a leading byte order mark
+Default: `JSON.parse` of each line, merged into one object, ignoring blank lines and a leading byte order mark
 
 Function to deserialize the config object from a UTF-8 string when reading the config file.
 
-You would usually not need this, but it could be useful if you want to use a format other than JSON.
+You would usually not need this, but it could be useful if you want to use a format other than JSON Lines.
 
 #### projectSuffix
 
@@ -448,7 +450,7 @@ Default: `true`
 Access nested properties by dot notation. For example:
 
 ```js
-import Conf from 'conf';
+import Conf from 'conf-lines';
 
 const config = new Conf({projectName: 'foo'});
 
@@ -467,7 +469,7 @@ console.log(config.get('foo.bar.foobar'));
 Alternatively, you can set this option to `false` so the whole string is treated as one key.
 
 ```js
-import Conf from 'conf';
+import Conf from 'conf-lines';
 
 const config = new Conf({
 	projectName: 'foo',
@@ -663,7 +665,7 @@ Get the path to the config file.
 
 ### How is this different from [`configstore`](https://github.com/yeoman/configstore)?
 
-I'm also the author of `configstore`. While it's pretty good, I did make some mistakes early on that are hard to change at this point. This module is the result of everything I learned from making `configstore`. Mainly where the config is stored. In `configstore`, the config is stored in `~/.config` (which is mainly a Linux convention) on all systems, while `conf` stores config in the system default [user config directory](https://github.com/sindresorhus/env-paths#pathsconfig). The `~/.config` directory, it turns out, often has incorrect permissions on macOS and Windows, which has caused a lot of grief for users.
+The author of the upstream `conf` is also the author of `configstore`, and `conf` is the result of everything learned from making it. Mainly where the config is stored. In `configstore`, the config is stored in `~/.config` (which is mainly a Linux convention) on all systems, while `conf` stores config in the system default [user config directory](https://github.com/sindresorhus/env-paths#pathsconfig). The `~/.config` directory, it turns out, often has incorrect permissions on macOS and Windows, which has caused a lot of grief for users.
 
 ### Can I use YAML or another serialization format?
 
@@ -672,7 +674,7 @@ The `serialize` and `deserialize` options can be used to customize the format of
 Example using YAML:
 
 ```js
-import Conf from 'conf';
+import Conf from 'conf-lines';
 import yaml from 'js-yaml';
 
 const config = new Conf({
@@ -683,9 +685,9 @@ const config = new Conf({
 });
 ```
 
-### Can I use `conf` with strict Content Security Policy (CSP)?
+### Can I use `conf-lines` with strict Content Security Policy (CSP)?
 
-`conf` depends on [`ajv`](https://ajv.js.org) for the `schema` option, which uses `unsafe-eval`. Even without using the `schema` option, `ajv` is still bundled and may cause CSP errors. As a workaround, you could configure your bundler to replace `ajv` with a stub:
+`conf-lines` depends on [`ajv`](https://ajv.js.org) for the `schema` option, which uses `unsafe-eval`. Even without using the `schema` option, `ajv` is still bundled and may cause CSP errors. As a workaround, you could configure your bundler to replace `ajv` with a stub:
 
 ```js
 // webpack.config.js
@@ -704,7 +706,7 @@ module.exports = {
 Conf is synchronous by design, so this is not possible. As a workaround, you could use [`make-synchronous`](https://github.com/sindresorhus/make-synchronous) to convert asynchronous functions to synchronous (with caveats):
 
 ```js
-import Conf from 'conf';
+import Conf from 'conf-lines';
 import makeSynchronous from 'make-synchronous';
 
 const config = new Conf({

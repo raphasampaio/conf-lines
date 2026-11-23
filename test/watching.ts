@@ -20,6 +20,7 @@ import {
 	withPollingWatcher,
 	untilWatching,
 	createExistingConfig,
+	toJsonLines,
 } from './_utilities.js';
 
 afterEach(() => {
@@ -47,7 +48,7 @@ describe('a watching store', () => {
 
 		// A change another process made is still reported, which is also what shows the watcher was there to report the write above.
 		const change = nextChange(conf);
-		fs.writeFileSync(conf.path, JSON.stringify({foo: 2}));
+		fs.writeFileSync(conf.path, toJsonLines({foo: 2}));
 		await change;
 		await untilQuiet(() => changes);
 		assert.strictEqual(changes, 2);
@@ -153,8 +154,8 @@ describe('a watching store', () => {
 		await untilWatching();
 		const changePromise = nextChange(conf);
 
-		const writePath = path.join(cwd, 'config.json');
-		fs.writeFileSync(writePath, JSON.stringify({foo: '🦄'}));
+		const writePath = path.join(cwd, 'config.jsonl');
+		fs.writeFileSync(writePath, toJsonLines({foo: '🦄'}));
 		fs.statSync(writePath);
 
 		await changePromise;
@@ -184,7 +185,7 @@ describe('a watching store', () => {
 
 	it('watch mode creates the file when missing and closes cleanly', () => {
 		const cwd = createTempDirectory();
-		const configPath = path.join(cwd, 'config.json');
+		const configPath = path.join(cwd, 'config.jsonl');
 		assert.strictEqual(fs.existsSync(configPath), false);
 		const conf = new Conf({cwd, watch: true});
 		try {
@@ -218,7 +219,7 @@ describe('a self-write with a watcher open', () => {
 
 		// A change from elsewhere is reported, which shows the watcher was there to report the write above a second time.
 		const change = nextChange(conf);
-		fs.writeFileSync(conf.path, JSON.stringify({a: 2}));
+		fs.writeFileSync(conf.path, toJsonLines({a: 2}));
 		await change;
 		await untilQuiet(() => reported);
 		assert.deepStrictEqual(seen, [1, 2], 'the change from elsewhere is reported once');
@@ -319,7 +320,7 @@ describe('closing the watcher', () => {
 		// Give the file watcher time to start before another process writes the config file.
 		await untilWatching();
 		const reported = nextChange(other);
-		fs.writeFileSync(conf.path, JSON.stringify({foo: 1}, undefined, '\t'));
+		fs.writeFileSync(conf.path, toJsonLines({foo: 1}));
 		await delay(50);
 
 		conf._closeWatcher();
@@ -342,7 +343,7 @@ describe('closing the watcher', () => {
 		conf._closeWatcher();
 		await untilWatching();
 		const reported = nextChange(other);
-		fs.writeFileSync(conf.path, JSON.stringify({foo: 1}, undefined, '\t'));
+		fs.writeFileSync(conf.path, toJsonLines({foo: 1}));
 		await reported;
 		await settle();
 
@@ -401,8 +402,8 @@ describe('two stores, one of them watching, on the same file', () => {
 
 			const reported = nextChange(conf);
 			const other = createTempDirectory();
-			fs.writeFileSync(path.join(other, 'config.json'), JSON.stringify({replaced: true}));
-			fs.renameSync(path.join(other, 'config.json'), conf.path);
+			fs.writeFileSync(path.join(other, 'config.jsonl'), toJsonLines({replaced: true}));
+			fs.renameSync(path.join(other, 'config.jsonl'), conf.path);
 
 			await reported;
 			assert.deepStrictEqual({...conf.store}, {replaced: true}, 'the file that was renamed over the config file is reported and the cache is dropped for it');

@@ -209,7 +209,7 @@ describe('a migration that fails while another store writes to the same file', (
 			},
 		}), {message: /^Something went wrong during the migration!.*boom$/});
 
-		assert.deepStrictEqual(readConfigFile(path.join(cwd, 'config.json')), {seed: 1, __internal__: {migrations: {version: '1.0.0'}}});
+		assert.deepStrictEqual(readConfigFile(path.join(cwd, 'config.jsonl')), {seed: 1, __internal__: {migrations: {version: '1.0.0'}}});
 	});
 });
 

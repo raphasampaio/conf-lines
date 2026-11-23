@@ -17,6 +17,7 @@ import {
 	settle,
 	createExistingConfig,
 	createNullProtoObject,
+	fromJsonLines,
 } from './_utilities.js';
 
 const readConfigText = (conf: Conf<any>): string => fs.readFileSync(conf.path, 'utf8');
@@ -532,7 +533,7 @@ describe('a `change` listener', () => {
 		conf.set('a', 1);
 		conf.set('a', 2);
 
-		assert.deepStrictEqual(fileAtDispatch.map(text => JSON.parse(text) as Record<string, number>), [{a: 1}, {a: 2}]);
+		assert.deepStrictEqual(fileAtDispatch.map(text => fromJsonLines(text)), [{a: 1}, {a: 2}]);
 		assert.deepStrictEqual({...conf.store}, {a: 2});
 	});
 });

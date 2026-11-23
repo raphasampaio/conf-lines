@@ -15,6 +15,7 @@ import {
 	createResolvedTempDirectory,
 	linkedConfig,
 	untilWatching,
+	toJsonLines,
 } from './_utilities.js';
 
 // A name that holds half of a surrogate pair, which is what a string sliced between the two halves of an emoji holds, and what `JSON.parse` of an escaped lone surrogate holds. The name is written to the file system as a replacement character, since that is the only UTF-8 form of a character that is not one, and a name read back as text is a name that no longer equals the one that was written.
@@ -29,13 +30,13 @@ describe('a watched symlink at the config path', () => {
 	// The write follows the link, so the file can be in a directory the watcher is not watching, and a link that is put in place or repointed is itself a change in the directory the path is in. Watching only one of the two loses a change the other holds.
 	for (const [name, replace] of [
 		['replaced by a file', (cwd: string) => {
-			fs.rmSync(path.join(cwd, 'config.json'));
-			fs.writeFileSync(path.join(cwd, 'config.json'), JSON.stringify({v: 9}));
+			fs.rmSync(path.join(cwd, 'config.jsonl'));
+			fs.writeFileSync(path.join(cwd, 'config.jsonl'), toJsonLines({v: 9}));
 		}],
 		['repointed at a file beside the link', (cwd: string) => {
-			fs.rmSync(path.join(cwd, 'config.json'));
-			fs.symlinkSync(path.join(cwd, 'other.json'), path.join(cwd, 'config.json'));
-			fs.writeFileSync(path.join(cwd, 'other.json'), JSON.stringify({v: 7}));
+			fs.rmSync(path.join(cwd, 'config.jsonl'));
+			fs.symlinkSync(path.join(cwd, 'other.jsonl'), path.join(cwd, 'config.jsonl'));
+			fs.writeFileSync(path.join(cwd, 'other.jsonl'), toJsonLines({v: 7}));
 		}],
 	] as Array<[string, (cwd: string) => void]>) {
 		it(`reports a change to a link that is ${name}`, {skip: skipWatching}, async () => {
@@ -43,7 +44,7 @@ describe('a watched symlink at the config path', () => {
 			const cwd = path.join(base, 'cwd');
 			fs.mkdirSync(cwd);
 			fs.mkdirSync(path.join(base, 'elsewhere'));
-			fs.symlinkSync(path.join(base, 'elsewhere', 'shared.json'), path.join(cwd, 'config.json'));
+			fs.symlinkSync(path.join(base, 'elsewhere', 'shared.jsonl'), path.join(cwd, 'config.jsonl'));
 
 			const writer = trackConf(new Conf<Record<string, unknown>>({cwd, watch: true, cache: true}));
 			const watcher = trackConf(new Conf<Record<string, unknown>>({cwd, watch: true, cache: true}));
@@ -71,8 +72,8 @@ describe('a watched symlink at the config path', () => {
 describe('watching a config path that is a symlink', () => {
 	// The file a link points at is watched as well as the link, and a link beside the file it points at is the one case where the two are in the same directory. The directory is watched once for each of the two files, since one watcher for a directory is told about the events of every file in it and answers for the name of only one of them.
 	for (const [name, target] of [
-		['in the same directory', 'shared.json'],
-		['in another directory', path.join('..', 'elsewhere', 'shared.json')],
+		['in the same directory', 'shared.jsonl'],
+		['in another directory', path.join('..', 'elsewhere', 'shared.jsonl')],
 	] as Array<[string, string]>) {
 		it(`reports a change to the file a link points at, ${name}`, {skip: skipWatching}, async () => {
 			// A path with a link of its own in it is a path the two are different spellings of, which is what a temporary directory on macOS is and what any other one is not.
@@ -81,7 +82,7 @@ describe('watching a config path that is a symlink', () => {
 			fs.mkdirSync(cwd);
 			const targetPath = path.resolve(cwd, target);
 			fs.mkdirSync(path.dirname(targetPath), {recursive: true});
-			fs.symlinkSync(targetPath, path.join(cwd, 'config.json'));
+			fs.symlinkSync(targetPath, path.join(cwd, 'config.jsonl'));
 
 			const writer = trackConf(new Conf<Record<string, unknown>>({cwd, watch: true, cache: true}));
 			const watcher = trackConf(new Conf<Record<string, unknown>>({cwd, watch: true, cache: true}));
@@ -110,7 +111,7 @@ describe('watching a config path that is a symlink', () => {
 		const base = createResolvedTempDirectory();
 		const cwd = path.join(base, 'cwd');
 		fs.mkdirSync(cwd);
-		fs.symlinkSync('shared.json', path.join(cwd, 'config.json'));
+		fs.symlinkSync('shared.jsonl', path.join(cwd, 'config.jsonl'));
 
 		const writer = trackConf(new Conf<Record<string, unknown>>({cwd, watch: true, cache: true}));
 		const watcher = trackConf(new Conf<Record<string, unknown>>({cwd, watch: true, cache: true}));
@@ -126,9 +127,9 @@ describe('watching a config path that is a symlink', () => {
 
 		// The link is repointed at a file beside it, which is a change in the directory the link is in rather than in the one the file it pointed at was in.
 		change = nextChange(watcher);
-		fs.rmSync(path.join(cwd, 'config.json'));
-		fs.symlinkSync('other.json', path.join(cwd, 'config.json'));
-		fs.writeFileSync(path.join(cwd, 'other.json'), JSON.stringify({v: 2}, undefined, '\t'));
+		fs.rmSync(path.join(cwd, 'config.jsonl'));
+		fs.symlinkSync('other.jsonl', path.join(cwd, 'config.jsonl'));
+		fs.writeFileSync(path.join(cwd, 'other.jsonl'), toJsonLines({v: 2}));
 		await change;
 		await untilQuiet(() => fired);
 		assert.strictEqual(fired, 1, 'the changes reported');
@@ -156,7 +157,7 @@ describe('watching a config path that is a symlink', () => {
 
 		// A change to the config itself is still reported, so the watcher was there to report the one above.
 		const change = nextChange(watcher);
-		fs.writeFileSync(watcher.path, JSON.stringify({v: 2}));
+		fs.writeFileSync(watcher.path, toJsonLines({v: 2}));
 		await change;
 		await untilQuiet(() => fired);
 		assert.strictEqual(fired, 1, 'the change to the config is reported');
@@ -212,7 +213,7 @@ describe('`watch` with a symlink at the config path', {skip: skipWatching}, () =
 
 		// The link is resolved once, when watching starts, and the directory it is in is watched along with the one it points into, so taking the link away is a change there. A read goes through the config path, which then holds nothing, so the store reads as one that is not there.
 		const change = nextChange(conf);
-		fs.rmSync(path.join(cwd, 'config.json'));
+		fs.rmSync(path.join(cwd, 'config.jsonl'));
 		await change;
 
 		assert.strictEqual(conf.get('own'), undefined, 'the store reads a store with no config file in it');
@@ -227,8 +228,8 @@ describe('`watch` with a symlink at the config path', {skip: skipWatching}, () =
 
 		// A directory where the config file was is not a file a write can be made into either, and the change that put it there is reported rather than left for a write to find.
 		const change = nextChange(conf);
-		fs.rmSync(path.join(target, 'shared.json'));
-		fs.mkdirSync(path.join(target, 'shared.json'));
+		fs.rmSync(path.join(target, 'shared.jsonl'));
+		fs.mkdirSync(path.join(target, 'shared.jsonl'));
 		await change;
 
 		assert.throws(() => conf.get('own'), {code: 'EISDIR'}, 'the store reports the read that cannot be made rather than answering with what is there');
@@ -246,10 +247,10 @@ describe('`watch` with a config name the file system spells its own way', {skip:
 			const cwd = path.join(base, 'cwd');
 			fs.mkdirSync(cwd);
 			// The file is made under one spelling and the store that watches it is opened at the other, which is the case a watcher can only answer by asking the file system.
-			fs.writeFileSync(path.join(cwd, `${first}.json`), JSON.stringify({v: 0}, undefined, '\t'));
+			fs.writeFileSync(path.join(cwd, `${first}.jsonl`), toJsonLines({v: 0}));
 
 			// A volume that keeps the two spellings apart holds two files, and which volume this is says nothing about the module, so the case is one that runs only where the volume holds one file under both.
-			if (!fs.existsSync(path.join(cwd, `${second}.json`))) {
+			if (!fs.existsSync(path.join(cwd, `${second}.jsonl`))) {
 				t.skip(`the volume keeps names apart by ${spelling}`);
 				return;
 			}
@@ -259,7 +260,7 @@ describe('`watch` with a config name the file system spells its own way', {skip:
 				cwd, configName: second, watch: true, cache: true,
 			}));
 
-			assert.deepStrictEqual(fs.readdirSync(cwd), [`${first}.json`], 'the two spellings are one file');
+			assert.deepStrictEqual(fs.readdirSync(cwd), [`${first}.jsonl`], 'the two spellings are one file');
 
 			// A watcher that was just made can miss an event that comes at once, since the file system takes a moment to start delivering them, so the store is left alone for a moment first.
 			await settle();
@@ -303,7 +304,7 @@ describe('`watch` with a config directory that is taken away and made again', {s
 		fs.mkdirSync(cwd, {recursive: true});
 
 		const change = nextChange(conf);
-		fs.writeFileSync(path.join(cwd, 'config.json'), JSON.stringify({v: 2}, undefined, '\t'));
+		fs.writeFileSync(path.join(cwd, 'config.jsonl'), toJsonLines({v: 2}));
 		await change;
 
 		assert.strictEqual(conf.get('v'), 2, 'the store reads what the file the new directory holds');

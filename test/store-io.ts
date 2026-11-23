@@ -19,6 +19,7 @@ import {
 	withSnap,
 	price,
 	createExistingConfig,
+	toJsonLines,
 } from './_utilities.js';
 
 type Store = Record<string, any>;
@@ -27,7 +28,7 @@ type Store = Record<string, any>;
 Write a config file, so the store is one that already exists.
 */
 const writeConfigFile = (cwd: string, contents: string): void => {
-	fs.writeFileSync(path.join(cwd, 'config.json'), contents);
+	fs.writeFileSync(path.join(cwd, 'config.jsonl'), contents);
 };
 
 // A store the schema cannot accept once cleared either, so a construction cannot finish whichever way the schema violation is handled.
@@ -391,7 +392,7 @@ describe('the `store` setter', () => {
 describe('reading and writing the config file', () => {
 	it('starts empty when no file exists and writes lazily', () => {
 		const cwd = createTempDirectory();
-		const configPath = path.join(cwd, 'config.json');
+		const configPath = path.join(cwd, 'config.jsonl');
 		assert.strictEqual(fs.existsSync(configPath), false);
 		const conf = new Conf({cwd});
 		assert.deepStrictEqual(conf.store, createNullProtoObject({}));
@@ -412,7 +413,7 @@ describe('reading and writing the config file', () => {
 
 	it('clears corrupted JSON with clearInvalidConfig', () => {
 		const cwd = createTempDirectory();
-		fs.writeFileSync(path.join(cwd, 'config.json'), '{not-json');
+		fs.writeFileSync(path.join(cwd, 'config.jsonl'), '{not-json');
 		const conf = new Conf({cwd, clearInvalidConfig: true});
 		assert.deepStrictEqual(conf.store, createNullProtoObject({}));
 		assert.strictEqual(conf.get('anything'), undefined);
@@ -422,7 +423,7 @@ describe('reading and writing the config file', () => {
 
 	it('treats a file containing null as an empty store', () => {
 		const cwd = createTempDirectory();
-		fs.writeFileSync(path.join(cwd, 'config.json'), 'null');
+		fs.writeFileSync(path.join(cwd, 'config.jsonl'), 'null');
 		const conf = new Conf({cwd});
 		assert.deepStrictEqual(conf.store, createNullProtoObject({}));
 		assert.strictEqual(conf.size, 0);
@@ -496,7 +497,7 @@ describe('reading and writing the config file', () => {
 
 	it('supports a frozen object returned from deserialize', () => {
 		const cwd = createTempDirectory();
-		fs.writeFileSync(path.join(cwd, 'config.json'), JSON.stringify({seed: 1}));
+		fs.writeFileSync(path.join(cwd, 'config.jsonl'), toJsonLines({seed: 1}));
 		const conf = new Conf({
 			cwd,
 			deserialize: text => Object.freeze(JSON.parse(text)) as Record<string, unknown>,
@@ -513,7 +514,7 @@ describe('a whole-store write over a file the store cannot read', () => {
 		const initializationVector = crypto.randomBytes(16);
 		const password = crypto.pbkdf2Sync(key, initializationVector, 10_000, 32, 'sha512');
 		const cipher = crypto.createCipheriv('aes-256-cbc', password, initializationVector);
-		const encrypted = Buffer.concat([cipher.update(Buffer.from(JSON.stringify(value, undefined, '\t'))), cipher.final()]);
+		const encrypted = Buffer.concat([cipher.update(Buffer.from(toJsonLines(value))), cipher.final()]);
 		return Buffer.concat([initializationVector, Buffer.from(':'), encrypted]);
 	};
 
@@ -529,7 +530,7 @@ describe('a whole-store write over a file the store cannot read', () => {
 
 		assert.throws(() => {
 			conf.set('another', 'value');
-		}, {name: 'SyntaxError', message: `The config file \`${conf.path}\` is not valid JSON.`});
+		}, {name: 'SyntaxError', message: `The config file \`${conf.path}\` is not valid JSON Lines.`});
 		assert.deepStrictEqual(fs.readFileSync(conf.path), before, 'the file after a `set()`');
 
 		conf.store = {replaced: 'value'};
@@ -541,7 +542,7 @@ describe('a config file that is gone while the store holds a rule nothing satisf
 	// A store there is no file for is read as the store its `defaults` option and the `default`s of its schema make, and the schema is not enforced on it: there is no store to enforce it on, and enforcing it would make every read of it fail, and with it every write, since a write reads the file first.
 	it('is read as the store its defaults make, and can be written to', () => {
 		const cwd = createTempDirectory();
-		fs.writeFileSync(path.join(cwd, 'config.json'), JSON.stringify({a: 1}));
+		createExistingConfig(cwd, {a: 1});
 
 		const conf = new Conf<Record<string, unknown>>({
 			cwd,
@@ -657,7 +658,7 @@ describe('config file that does not hold an object', () => {
 	for (const [name, content] of notWholeObjects) {
 		it(`reads a file that holds ${name} as an empty store`, () => {
 			const cwd = createTempDirectory();
-			fs.writeFileSync(path.join(cwd, 'config.json'), content);
+			fs.writeFileSync(path.join(cwd, 'config.jsonl'), content);
 			const conf = new Conf({cwd});
 			assert.deepStrictEqual(conf.store, createNullProtoObject({}));
 			assert.strictEqual(conf.size, 0);
@@ -668,7 +669,7 @@ describe('config file that does not hold an object', () => {
 
 	it('keeps reading the file as an empty store on every read', () => {
 		const cwd = createTempDirectory();
-		const filePath = path.join(cwd, 'config.json');
+		const filePath = path.join(cwd, 'config.jsonl');
 		fs.writeFileSync(filePath, '"hello"');
 		const conf = new Conf({cwd, cache: true});
 		assert.deepStrictEqual(conf.store, createNullProtoObject({}));
@@ -849,35 +850,35 @@ describe('a read, which does not create the file', () => {
 		const cwd = createTempDirectory();
 		const conf = new Conf({cwd});
 		conf.get('missing');
-		assert.strictEqual(fs.existsSync(path.join(cwd, 'config.json')), false);
+		assert.strictEqual(fs.existsSync(path.join(cwd, 'config.jsonl')), false);
 	});
 
 	it('has() does not create the file', () => {
 		const cwd = createTempDirectory();
 		const conf = new Conf({cwd});
 		conf.has('missing');
-		assert.strictEqual(fs.existsSync(path.join(cwd, 'config.json')), false);
+		assert.strictEqual(fs.existsSync(path.join(cwd, 'config.jsonl')), false);
 	});
 
 	it('size does not create the file', () => {
 		const cwd = createTempDirectory();
 		const conf = new Conf({cwd});
 		assert.strictEqual(conf.size, 0);
-		assert.strictEqual(fs.existsSync(path.join(cwd, 'config.json')), false);
+		assert.strictEqual(fs.existsSync(path.join(cwd, 'config.jsonl')), false);
 	});
 
 	it('store getter does not create the file', () => {
 		const cwd = createTempDirectory();
 		const conf = new Conf({cwd});
 		assert.deepStrictEqual(conf.store, createNullProtoObject({}));
-		assert.strictEqual(fs.existsSync(path.join(cwd, 'config.json')), false);
+		assert.strictEqual(fs.existsSync(path.join(cwd, 'config.jsonl')), false);
 	});
 
 	it('iteration does not create the file', () => {
 		const cwd = createTempDirectory();
 		const conf = new Conf({cwd});
 		assert.deepStrictEqual([...conf], []);
-		assert.strictEqual(fs.existsSync(path.join(cwd, 'config.json')), false);
+		assert.strictEqual(fs.existsSync(path.join(cwd, 'config.jsonl')), false);
 	});
 });
 
@@ -981,7 +982,7 @@ describe('a value a store cannot hold below the key', () => {
 			cwd,
 			schema: {a: {type: 'object', default: {b: 1n}}},
 		}), {name: 'TypeError'});
-		assert.strictEqual(fs.existsSync(path.join(cwd, 'config.json')), false);
+		assert.strictEqual(fs.existsSync(path.join(cwd, 'config.jsonl')), false);
 	});
 
 	// `JSON.stringify` drops a value it has no form for out of an object and writes it as `null` in an array, and the store has always done the same rather than refuse it, so a walk for what JSON cannot write leaves those alone.
@@ -1045,10 +1046,10 @@ describe('a config file that is not valid JSON', () => {
 
 	it('is reported for the file it is about, as a `SyntaxError`', () => {
 		const cwd = createTempDirectory();
-		const configPath = path.join(cwd, 'config.json');
+		const configPath = path.join(cwd, 'config.jsonl');
 		writeConfigFile(cwd, damaged);
 
-		assert.throws(() => new Conf({cwd}), {name: 'SyntaxError', message: `The config file \`${configPath}\` is not valid JSON.`});
+		assert.throws(() => new Conf({cwd}), {name: 'SyntaxError', message: `The config file \`${configPath}\` is not valid JSON Lines.`});
 	});
 });
 
@@ -1060,14 +1061,14 @@ describe('a config directory that is behind a symlink', () => {
 		fs.mkdirSync(cwd);
 		// The link at the config path names a file in a directory that is itself a link, and that directory is not there yet.
 		fs.symlinkSync(path.join(base, 'real'), path.join(cwd, 'linkdir'));
-		fs.symlinkSync('linkdir/config.json', path.join(cwd, 'config.json'));
+		fs.symlinkSync('linkdir/config.jsonl', path.join(cwd, 'config.jsonl'));
 
 		const conf = new Conf<Record<string, unknown>>({cwd});
 		conf.set('a', 1);
 
-		assert.ok(fs.lstatSync(path.join(cwd, 'config.json')).isSymbolicLink(), 'the link at the config path is still a link');
+		assert.ok(fs.lstatSync(path.join(cwd, 'config.jsonl')).isSymbolicLink(), 'the link at the config path is still a link');
 		assert.ok(fs.lstatSync(path.join(cwd, 'linkdir')).isSymbolicLink(), 'the link to the directory is still a link');
-		assert.deepStrictEqual(readConfigFile(path.join(base, 'real', 'config.json')), {a: 1}, 'the file where the links lead holds the store');
+		assert.deepStrictEqual(readConfigFile(path.join(base, 'real', 'config.jsonl')), {a: 1}, 'the file where the links lead holds the store');
 		assert.strictEqual(conf.get('a'), 1, 'the store reads back');
 	});
 
@@ -1077,13 +1078,13 @@ describe('a config directory that is behind a symlink', () => {
 		const cwd = path.join(base, 'cwd');
 		fs.mkdirSync(cwd);
 		fs.symlinkSync(path.join(base, 'real'), path.join(cwd, 'linkdir'));
-		fs.symlinkSync('linkdir/config.json', path.join(cwd, 'first.json'));
-		fs.symlinkSync('first.json', path.join(cwd, 'config.json'));
+		fs.symlinkSync('linkdir/config.jsonl', path.join(cwd, 'first.jsonl'));
+		fs.symlinkSync('first.jsonl', path.join(cwd, 'config.jsonl'));
 
 		const conf = new Conf<Record<string, unknown>>({cwd});
 		conf.set('a', 1);
 
-		assert.deepStrictEqual(readConfigFile(path.join(base, 'real', 'config.json')), {a: 1}, 'the file where the links lead holds the store');
+		assert.deepStrictEqual(readConfigFile(path.join(base, 'real', 'config.jsonl')), {a: 1}, 'the file where the links lead holds the store');
 		assert.strictEqual(conf.get('a'), 1, 'the store reads back');
 	});
 
@@ -1094,13 +1095,13 @@ describe('a config directory that is behind a symlink', () => {
 		fs.mkdirSync(cwd);
 		fs.mkdirSync(path.join(base, 'real'));
 		fs.symlinkSync(path.join(base, 'real'), path.join(cwd, 'linkdir'));
-		fs.symlinkSync('linkdir/config.json', path.join(cwd, 'config.json'));
+		fs.symlinkSync('linkdir/config.jsonl', path.join(cwd, 'config.jsonl'));
 
 		const conf = new Conf<Record<string, unknown>>({cwd});
 		conf.set('a', 1);
 
-		assert.deepStrictEqual(fs.readdirSync(cwd).sort(), ['config.json', 'linkdir'], 'nothing is made where the link is');
-		assert.deepStrictEqual(readConfigFile(path.join(base, 'real', 'config.json')), {a: 1}, 'the file where the links lead holds the store');
+		assert.deepStrictEqual(fs.readdirSync(cwd).sort(), ['config.jsonl', 'linkdir'], 'nothing is made where the link is');
+		assert.deepStrictEqual(readConfigFile(path.join(base, 'real', 'config.jsonl')), {a: 1}, 'the file where the links lead holds the store');
 		assert.strictEqual(conf.get('a'), 1, 'the store reads back');
 	});
 
@@ -1110,13 +1111,13 @@ describe('a config directory that is behind a symlink', () => {
 		fs.mkdirSync(path.join(base, 'real', 'nested'), {recursive: true});
 		const cwd = path.join(base, 'cwd');
 		fs.symlinkSync(path.join(base, 'real', 'nested'), cwd);
-		fs.symlinkSync('../config-target.json', path.join(cwd, 'config.json'));
+		fs.symlinkSync('../config-target.jsonl', path.join(cwd, 'config.jsonl'));
 
 		const conf = new Conf<Record<string, unknown>>({cwd});
 		conf.set('a', 1);
 
-		assert.deepStrictEqual(readConfigFile(path.join(base, 'real', 'config-target.json')), {a: 1}, 'the file the kernel resolves the link to holds the store');
-		assert.ok(!fs.existsSync(path.join(base, 'config-target.json')), 'nothing is written beside the link to `cwd`');
+		assert.deepStrictEqual(readConfigFile(path.join(base, 'real', 'config-target.jsonl')), {a: 1}, 'the file the kernel resolves the link to holds the store');
+		assert.ok(!fs.existsSync(path.join(base, 'config-target.jsonl')), 'nothing is written beside the link to `cwd`');
 		assert.strictEqual(conf.get('a'), 1, 'the store reads back');
 	});
 });
@@ -1125,8 +1126,8 @@ describe('a config path that is a symlink', () => {
 	// A write follows a link at the config path, so the file a construction leaves behind is the one the link points at. Putting the file back has to put back that one, where taking the path away instead leaves the file the write made behind and takes the link the caller put there with it.
 	it('leaves the link and the file a construction that cannot finish made', () => {
 		const cwd = createTempDirectory();
-		const link = path.join(cwd, 'config.json');
-		fs.symlinkSync('shared.json', link);
+		const link = path.join(cwd, 'config.jsonl');
+		fs.symlinkSync('shared.jsonl', link);
 
 		assert.throws(() => {
 			new Conf({
@@ -1138,14 +1139,14 @@ describe('a config path that is a symlink', () => {
 		}, {message: /must have required property/});
 
 		assert.ok(fs.lstatSync(link).isSymbolicLink(), 'the link is still a link');
-		assert.deepEqual(fs.readdirSync(cwd), ['config.json'], 'nothing is left where the write put the file');
+		assert.deepEqual(fs.readdirSync(cwd), ['config.jsonl'], 'nothing is left where the write put the file');
 	});
 
 	// A store that is cleared is written as well, so the same file is left behind the same way and has to be taken away the same way.
 	it('leaves the link and the file a store a migration cannot write made', () => {
 		const cwd = createTempDirectory();
-		const link = path.join(cwd, 'config.json');
-		fs.symlinkSync('shared.json', link);
+		const link = path.join(cwd, 'config.jsonl');
+		fs.symlinkSync('shared.jsonl', link);
 
 		assert.throws(() => {
 			new Conf({
@@ -1158,15 +1159,15 @@ describe('a config path that is a symlink', () => {
 		}, {message: /must have required property/});
 
 		assert.ok(fs.lstatSync(link).isSymbolicLink(), 'the link is still a link');
-		assert.deepEqual(fs.readdirSync(cwd), ['config.json'], 'nothing is left where the write put the file');
+		assert.deepEqual(fs.readdirSync(cwd), ['config.jsonl'], 'nothing is left where the write put the file');
 	});
 
 	// A link that points at a file that is there is put back the way it was found, which is through the link, so the file itself is what is written.
 	it('puts a file a link resolves to back the way it was', () => {
 		const cwd = createTempDirectory();
-		const target = path.join(cwd, 'shared.json');
-		fs.writeFileSync(target, JSON.stringify({before: true}, undefined, '\t'));
-		fs.symlinkSync('shared.json', path.join(cwd, 'config.json'));
+		const target = path.join(cwd, 'shared.jsonl');
+		fs.writeFileSync(target, toJsonLines({before: true}));
+		fs.symlinkSync('shared.jsonl', path.join(cwd, 'config.jsonl'));
 
 		assert.throws(() => {
 			new Conf({
@@ -1177,14 +1178,14 @@ describe('a config path that is a symlink', () => {
 			});
 		}, {message: /must have required property/});
 
-		assert.ok(fs.lstatSync(path.join(cwd, 'config.json')).isSymbolicLink(), 'the link is still a link');
+		assert.ok(fs.lstatSync(path.join(cwd, 'config.jsonl')).isSymbolicLink(), 'the link is still a link');
 		assert.deepEqual(readConfigFile(target), {before: true}, 'the file holds what it held');
 	});
 
 	// A file that is there is put back the way it was found, whatever the migrations did to it.
 	it('puts a plain config file back the way it was', () => {
 		const cwd = createTempDirectory();
-		fs.writeFileSync(path.join(cwd, 'config.json'), JSON.stringify({before: true}, undefined, '\t'));
+		createExistingConfig(cwd, {before: true});
 
 		assert.throws(() => {
 			new Conf({
@@ -1195,7 +1196,7 @@ describe('a config path that is a symlink', () => {
 			});
 		}, {message: /must have required property/});
 
-		assert.deepEqual(readConfigFile(path.join(cwd, 'config.json')), {before: true}, 'the file holds what it held');
+		assert.deepEqual(readConfigFile(path.join(cwd, 'config.jsonl')), {before: true}, 'the file holds what it held');
 	});
 
 	// The same for a store that is not there yet, which is the case the file goes back to being absent in.
@@ -1217,37 +1218,37 @@ describe('a config path that is a symlink', () => {
 	// A link that points nowhere is a file the write makes where it points, so the store reads back what it wrote through the link.
 	it('keeps a link that points nowhere and writes where it points', () => {
 		const cwd = createTempDirectory();
-		const link = path.join(cwd, 'config.json');
-		fs.symlinkSync('shared.json', link);
+		const link = path.join(cwd, 'config.jsonl');
+		fs.symlinkSync('shared.jsonl', link);
 
 		const conf = new Conf<Record<string, unknown>>({cwd, projectVersion: '1.0.0', migrations: flagMigrations});
 		conf.set('added', true);
 
 		assert.ok(fs.lstatSync(link).isSymbolicLink(), 'the link is still a link');
-		assert.deepEqual(readConfigFile(path.join(cwd, 'shared.json')), {added: true, __internal__: {migrations: {version: '1.0.0'}}});
+		assert.deepEqual(readConfigFile(path.join(cwd, 'shared.jsonl')), {added: true, __internal__: {migrations: {version: '1.0.0'}}});
 		assert.strictEqual(conf.get('added'), true);
 	});
 
 	// A chain of links is followed to the end of it, since a read follows the whole of it and the file the write belongs in is the one at the end.
 	for (const [name, file, before] of [
-		['resolves', 'shared.json', {kept: true}],
-		['points nowhere', 'nowhere.json', undefined],
+		['resolves', 'shared.jsonl', {kept: true}],
+		['points nowhere', 'nowhere.jsonl', undefined],
 	] as Array<[string, string, Record<string, unknown> | undefined]>) {
 		it(`keeps every link of a chain that ${name}`, () => {
 			const cwd = createTempDirectory();
 			if (before) {
-				fs.writeFileSync(path.join(cwd, file), JSON.stringify(before));
+				fs.writeFileSync(path.join(cwd, file), toJsonLines(before));
 			}
 
 			// The config path points at the first link, which points at the second, which points at the file the store is written to.
-			fs.symlinkSync('second.json', path.join(cwd, 'first.json'));
-			fs.symlinkSync(file, path.join(cwd, 'second.json'));
-			fs.symlinkSync('first.json', path.join(cwd, 'config.json'));
+			fs.symlinkSync('second.jsonl', path.join(cwd, 'first.jsonl'));
+			fs.symlinkSync(file, path.join(cwd, 'second.jsonl'));
+			fs.symlinkSync('first.jsonl', path.join(cwd, 'config.jsonl'));
 
 			const conf = new Conf<Record<string, unknown>>({cwd});
 			conf.set('a', 1);
 
-			for (const link of ['config.json', 'first.json', 'second.json']) {
+			for (const link of ['config.jsonl', 'first.jsonl', 'second.jsonl']) {
 				assert.ok(fs.lstatSync(path.join(cwd, link)).isSymbolicLink(), `${link} is still a link`);
 			}
 
@@ -1261,9 +1262,9 @@ describe('a config path that is a symlink', () => {
 		const conf = new Conf<Record<string, unknown>>({cwd});
 		conf.set('a', 1);
 
-		const target = path.join(cwd, 'elsewhere.json');
-		fs.writeFileSync(target, JSON.stringify({b: 2}));
-		fs.renameSync(conf.path, path.join(cwd, 'backup.json'));
+		const target = path.join(cwd, 'elsewhere.jsonl');
+		fs.writeFileSync(target, toJsonLines({b: 2}));
+		fs.renameSync(conf.path, path.join(cwd, 'backup.jsonl'));
 		fs.symlinkSync(target, conf.path);
 
 		// The store reads and writes where the link points, which is where it has been reading and writing all along.
@@ -1271,7 +1272,7 @@ describe('a config path that is a symlink', () => {
 		assert.strictEqual(conf.get('b'), 2, 'a key the target holds');
 		conf.set('c', 3);
 		assert.deepStrictEqual(readConfigFile(target), {b: 2, c: 3});
-		assert.deepStrictEqual(readConfigFile(path.join(cwd, 'backup.json')), {a: 1});
+		assert.deepStrictEqual(readConfigFile(path.join(cwd, 'backup.jsonl')), {a: 1});
 	});
 
 	// A read and the in-place write both follow the link, so the atomic write does too. Renaming over the link itself would leave the config the caller pointed at as a file of its own that nothing else reads, and the data the other reader of the target still holds would be the only copy left of it.
@@ -1283,12 +1284,12 @@ describe('a config path that is a symlink', () => {
 			const base = createTempDirectory();
 			const cwd = path.join(base, 'cwd');
 			fs.mkdirSync(cwd);
-			const target = path.join(base, 'shared.json');
+			const target = path.join(base, 'shared.jsonl');
 			if (resolves) {
-				fs.writeFileSync(target, JSON.stringify({kept: true}));
+				fs.writeFileSync(target, toJsonLines({kept: true}));
 			}
 
-			fs.symlinkSync(target, path.join(cwd, 'config.json'));
+			fs.symlinkSync(target, path.join(cwd, 'config.jsonl'));
 			const conf = new Conf<Record<string, unknown>>({cwd});
 			conf.set('a', 1);
 
@@ -1324,13 +1325,13 @@ describe('a config file that is written in place', () => {
 		it(`makes the directory a link at the config path points at, ${name}`, () => {
 			withSnap(snap, () => {
 				const cwd = createTempDirectory();
-				fs.symlinkSync(path.join('gone', 'config.json'), path.join(cwd, 'config.json'));
+				fs.symlinkSync(path.join('gone', 'config.jsonl'), path.join(cwd, 'config.jsonl'));
 
 				const conf = new Conf<Record<string, unknown>>({cwd});
 				conf.set('a', 1);
 
-				assert.ok(fs.lstatSync(path.join(cwd, 'config.json')).isSymbolicLink(), 'the link is still a link');
-				assert.deepEqual(readConfigFile(path.join(cwd, 'gone', 'config.json')), {a: 1}, 'the file where the link points holds the store');
+				assert.ok(fs.lstatSync(path.join(cwd, 'config.jsonl')).isSymbolicLink(), 'the link is still a link');
+				assert.deepEqual(readConfigFile(path.join(cwd, 'gone', 'config.jsonl')), {a: 1}, 'the file where the link points holds the store');
 				assert.strictEqual(conf.get('a'), 1);
 			});
 		});
@@ -1354,7 +1355,7 @@ describe('a config file that is written in place', () => {
 describe('a key written below a value that writes itself', () => {
 	it('leaves a `defaults` path below a value that writes itself to the value the store holds', () => {
 		const cwd = createTempDirectory();
-		writeConfigFile(cwd, JSON.stringify({when: new Date(0)}));
+		writeConfigFile(cwd, toJsonLines({when: new Date(0)}));
 
 		const conf = new Conf<Record<string, any>>({cwd, defaults: {'when.minute': 1}, ...dateReviving});
 
@@ -1755,7 +1756,7 @@ describe('a value nested deep', () => {
 describe('a config file a text editor wrote', () => {
 	it('reads a config file that a text editor gave a byte order mark', () => {
 		const cwd = createTempDirectory();
-		fs.writeFileSync(path.join(cwd, 'config.json'), `\uFEFF${JSON.stringify({foo: 'bar'})}`);
+		fs.writeFileSync(path.join(cwd, 'config.jsonl'), `\uFEFF${toJsonLines({foo: 'bar'})}`);
 
 		// A byte order mark is not part of the JSON, so `JSON.parse` refuses it. The store skips it, so a file a text editor saved that way is read as the store it holds, and `clearInvalidConfig` does not take it for a damaged one.
 		assert.strictEqual(new Conf({cwd}).get('foo'), 'bar');

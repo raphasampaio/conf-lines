@@ -14,6 +14,7 @@ import {
 	nextProjectName,
 	createNullProtoObject,
 	readConfigFile,
+	fromJsonLines,
 	createResolvedTempDirectory,
 } from './_utilities.js';
 
@@ -25,7 +26,7 @@ type Store = Record<string, any>;
 const loneSurrogateName = 'con\uD800fig';
 
 // The bytes the name stands for on the file system, which is a replacement character where the string holds half of a surrogate pair.
-const nameOnDisk = 'con�fig.json';
+const nameOnDisk = 'con�fig.jsonl';
 
 afterEach(() => {
 	resetTrackedConfs();
@@ -103,12 +104,13 @@ describe('the layout of the config file', () => {
 		assert.ok(path.isAbsolute(conf.path));
 	});
 
-	it('writes JSON with tab indentation by default', () => {
+	it('writes JSON Lines, one compact line per top-level key, by default', () => {
 		const conf = new Conf({cwd: createTempDirectory()});
 		conf.set('a', {b: 1});
+		conf.set('c', 2);
 		const raw = fs.readFileSync(conf.path, 'utf8');
-		assert.ok(raw.includes('\t'));
-		assert.deepStrictEqual(JSON.parse(raw), {a: {b: 1}});
+		assert.strictEqual(raw, '{"a":{"b":1}}\n{"c":2}\n');
+		assert.deepStrictEqual(fromJsonLines(raw), {a: {b: 1}, c: 2});
 	});
 
 	it('keeps different configNames independent in one directory', () => {
@@ -132,7 +134,7 @@ describe('the layout of the config file', () => {
 
 	it('supports dotted configName values', () => {
 		const conf = new Conf({cwd: createTempDirectory(), configName: 'my.config'});
-		assert.strictEqual(path.basename(conf.path), 'my.config.json');
+		assert.strictEqual(path.basename(conf.path), 'my.config.jsonl');
 		conf.set('a', 1);
 		assert.strictEqual(conf.get('a'), 1);
 	});
@@ -153,7 +155,7 @@ describe('the layout of the config file', () => {
 			fileExtension: undefined,
 			accessPropertiesByDotNotation: undefined,
 		});
-		assert.strictEqual(path.basename(conf.path), 'config.json');
+		assert.strictEqual(path.basename(conf.path), 'config.jsonl');
 		conf.set('a.b', 1);
 		assert.deepStrictEqual(conf.get('a'), {b: 1});
 	});
@@ -182,14 +184,14 @@ describe('an option documented as an object that is not one', () => {
 });
 
 describe('an option the caller sets to nothing', () => {
-	it('`fileExtension` still defaults to `json`', () => {
+	it('`fileExtension` still defaults to `jsonl`', () => {
 		const cwd = createTempDirectory();
 
 		// An option set to `undefined` is the same as one not passed, and so is one set to `null`, which is how every option here is read.
 		for (const fileExtension of [undefined, null]) {
 			const config = new Conf({cwd, fileExtension} as Partial<Options<Record<string, unknown>>>);
 
-			assert.equal(config.path, path.join(cwd, 'config.json'));
+			assert.equal(config.path, path.join(cwd, 'config.jsonl'));
 		}
 	});
 
@@ -199,7 +201,7 @@ describe('an option the caller sets to nothing', () => {
 		for (const configName of [undefined, null]) {
 			const config = new Conf({cwd, configName} as Partial<Options<Record<string, unknown>>>);
 
-			assert.equal(config.path, path.join(cwd, 'config.json'));
+			assert.equal(config.path, path.join(cwd, 'config.jsonl'));
 		}
 	});
 
@@ -257,7 +259,7 @@ describe('an option the caller sets to nothing', () => {
 		});
 
 		// Both options have a default, so passing `undefined` must be the same as not passing them.
-		assert.strictEqual(path.basename(conf.path), 'config.json');
+		assert.strictEqual(path.basename(conf.path), 'config.jsonl');
 
 		conf.set('foo.bar', true);
 		assert.deepStrictEqual(conf.get('foo.bar'), true);
@@ -288,7 +290,7 @@ describe('`configName` and `fileExtension`', () => {
 			{message: /`configName`/},
 		);
 
-		assert.equal(fs.existsSync(path.join(parent, 'escaped.json')), false);
+		assert.equal(fs.existsSync(path.join(parent, 'escaped.jsonl')), false);
 	});
 
 	it('`configName` with a path separator is still allowed, since a nested name is supported', () => {
@@ -296,8 +298,8 @@ describe('`configName` and `fileExtension`', () => {
 		const config = new Conf({cwd, configName: path.join('sub', 'dir')});
 		config.set('foo', 'bar');
 
-		// The extension is appended to the whole name, so the file is `sub/dir.json` rather than a `config.json` below `sub/dir`.
-		assert.equal(config.path, path.join(cwd, 'sub', 'dir.json'));
+		// The extension is appended to the whole name, so the file is `sub/dir.jsonl` rather than a `config.jsonl` below `sub/dir`.
+		assert.equal(config.path, path.join(cwd, 'sub', 'dir.jsonl'));
 		assert.deepEqual(readConfigFile(config.path), {foo: 'bar'});
 	});
 
@@ -341,7 +343,7 @@ describe('`configName` and `fileExtension`', () => {
 		const config = new Conf({cwd, configName: 'other'});
 		config.set('foo', 'bar');
 
-		assert.equal(config.path, path.join(cwd, 'other.json'));
+		assert.equal(config.path, path.join(cwd, 'other.jsonl'));
 		assert.deepEqual(readConfigFile(config.path), {foo: 'bar'});
 	});
 });
@@ -406,7 +408,7 @@ describe('a `configName` or `fileExtension` that is not a name', () => {
 
 		config.set('key', 'value');
 
-		assert.equal(config.path, path.join(cwd, 'a.b c-d_e.json'));
+		assert.equal(config.path, path.join(cwd, 'a.b c-d_e.jsonl'));
 		assert.equal(config.get('key'), 'value');
 	});
 });
@@ -420,7 +422,7 @@ describe('a config file name that is not the string the caller wrote', () => {
 
 		conf.set('unicorn', 'rainbow');
 
-		assert.strictEqual(conf.path, path.join(cwd, `${loneSurrogateName}.json`), 'the path names the file the options ask for');
+		assert.strictEqual(conf.path, path.join(cwd, `${loneSurrogateName}.jsonl`), 'the path names the file the options ask for');
 		assert.ok(fs.existsSync(conf.path), 'the file the path names is there');
 		assert.deepStrictEqual(fs.readdirSync(cwd), [nameOnDisk], 'the file is the one the name stands for on the file system');
 		assert.deepStrictEqual(
@@ -455,7 +457,7 @@ describe('a config file name that is legal but awkward', () => {
 
 			conf.set('unicorn', 'rainbow');
 
-			assert.strictEqual(conf.path, path.join(cwd, `${configName}.json`), 'the path names the file the options ask for');
+			assert.strictEqual(conf.path, path.join(cwd, `${configName}.jsonl`), 'the path names the file the options ask for');
 			assert.deepStrictEqual(
 				readConfigFile(conf.path),
 				{unicorn: 'rainbow'},
@@ -489,7 +491,7 @@ describe('a `cwd` the caller gave', () => {
 
 		conf.set('unicorn', 'rainbow');
 
-		assert.strictEqual(conf.path, path.join(cwd, 'config.json'), 'the path is below the directory that was named');
+		assert.strictEqual(conf.path, path.join(cwd, 'config.jsonl'), 'the path is below the directory that was named');
 		assert.strictEqual(conf.get('unicorn'), 'rainbow', 'the store reads back what it wrote');
 	});
 
@@ -500,7 +502,7 @@ describe('a `cwd` the caller gave', () => {
 
 		conf.set('unicorn', 'rainbow');
 
-		assert.strictEqual(conf.path, path.join(base, 'a-directory', 'config.json'), 'the path is resolved out of the working directory');
+		assert.strictEqual(conf.path, path.join(base, 'a-directory', 'config.jsonl'), 'the path is resolved out of the working directory');
 		assert.strictEqual(conf.get('unicorn'), 'rainbow', 'the store reads back what it wrote');
 	});
 
@@ -515,8 +517,8 @@ describe('a `cwd` the caller gave', () => {
 
 		conf.set('unicorn', 'rainbow');
 
-		assert.strictEqual(conf.path, path.join(base, 'link-to-link', 'config.json'), 'the path is the one the caller named');
-		assert.deepStrictEqual(fs.readdirSync(target), ['config.json'], 'the file is the one the links lead to');
+		assert.strictEqual(conf.path, path.join(base, 'link-to-link', 'config.jsonl'), 'the path is the one the caller named');
+		assert.deepStrictEqual(fs.readdirSync(target), ['config.jsonl'], 'the file is the one the links lead to');
 		assert.strictEqual(conf.get('unicorn'), 'rainbow', 'the store reads back what it wrote');
 	});
 
@@ -594,7 +596,7 @@ describe('options that name the config file', () => {
 		assert.strictEqual(conf.get('foo'), undefined);
 		conf.set('foo', fixture);
 		assert.strictEqual(conf.get('foo'), fixture);
-		assert.strictEqual(path.basename(conf.path, '.json'), configName);
+		assert.strictEqual(path.basename(conf.path, '.jsonl'), configName);
 		assert.ok(fs.existsSync(conf.path));
 	});
 
@@ -611,7 +613,7 @@ describe('options that name the config file', () => {
 		const projectName = nextProjectName();
 		removeConfigDirectoryAfterwards(projectName);
 		const conf = new Conf({projectName});
-		assert.strictEqual(conf.path, path.join(envPaths(projectName, {suffix: 'nodejs'}).config, 'config.json'));
+		assert.strictEqual(conf.path, path.join(envPaths(projectName, {suffix: 'nodejs'}).config, 'config.jsonl'));
 	});
 
 	it('with `suffix` option set to empty string', () => {
@@ -652,7 +654,7 @@ describe('options that name the config file', () => {
 		const projectConfigDirectory = envPaths(projectName, {suffix: 'nodejs'}).config;
 
 		const conf: Conf = new Conf({cwd, projectName});
-		assert.strictEqual(conf.path, path.join(cwd, 'config.json'));
+		assert.strictEqual(conf.path, path.join(cwd, 'config.jsonl'));
 		assert.strictEqual(conf.get('foo'), undefined);
 		conf.set('foo', fixture);
 		assert.strictEqual(conf.get('foo'), fixture);
@@ -661,7 +663,7 @@ describe('options that name the config file', () => {
 		assert.strictEqual(fs.existsSync(projectConfigDirectory), false);
 
 		// A `projectName` that is empty is not refused either, since `cwd` says where the file goes.
-		assert.strictEqual(new Conf({cwd, projectName: ''}).path, path.join(cwd, 'config.json'));
+		assert.strictEqual(new Conf({cwd, projectName: ''}).path, path.join(cwd, 'config.jsonl'));
 	});
 
 	it('handles a custom extension with leading dots and a custom name', () => {

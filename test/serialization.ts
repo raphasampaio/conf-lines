@@ -11,6 +11,8 @@ import {
 	runRegisteredCleanups,
 	resetTrackedConfs,
 	readConfigFile,
+	toJsonLines,
+	fromJsonLines,
 } from './_utilities.js';
 
 const fixture = '🦄';
@@ -33,12 +35,12 @@ describe('a config file the store cannot read after clearing it', () => {
 			new Conf({cwd, serialize, clearInvalidConfig: true});
 		}, {name: 'SyntaxError', message: /is not valid JSON/});
 
-		assert.strictEqual(fs.readFileSync(path.join(cwd, 'config.json'), 'utf8'), 'a=0', 'the file was cleared once');
+		assert.strictEqual(fs.readFileSync(path.join(cwd, 'config.jsonl'), 'utf8'), 'a=0', 'the file was cleared once');
 	});
 
 	it('is not cleared again by the read a change listener makes while the clearing is in hand', () => {
 		const cwd = createTempDirectory();
-		const configPath = path.join(cwd, 'config.json');
+		const configPath = path.join(cwd, 'config.jsonl');
 		let writes = 0;
 		const countWrites = (value: Record<string, number>): string => {
 			writes++;
@@ -70,7 +72,7 @@ describe('a config file the store cannot read after clearing it', () => {
 
 	it('is not cleared again by a read a `serialize` makes while the clearing is in hand', () => {
 		const cwd = createTempDirectory();
-		const configPath = path.join(cwd, 'config.json');
+		const configPath = path.join(cwd, 'config.jsonl');
 		let writes = 0;
 		const read: unknown[] = [];
 
@@ -106,8 +108,8 @@ describe('a config file the store cannot read after clearing it', () => {
 describe('an error a `deserialize` of your own throws', () => {
 	it('is reported as yours, and the file is left as it is, even where the message is the one of a decryption failure', () => {
 		const cwd = createTempDirectory();
-		const configPath = path.join(cwd, 'config.json');
-		fs.writeFileSync(configPath, JSON.stringify({a: 1}));
+		const configPath = path.join(cwd, 'config.jsonl');
+		fs.writeFileSync(configPath, toJsonLines({a: 1}));
 
 		// The message is the one this module writes for a file it could not decrypt, which is not a file this store is looking at.
 		assert.throws(() => {
@@ -120,20 +122,21 @@ describe('an error a `deserialize` of your own throws', () => {
 			});
 		}, {name: 'Error', message: 'Failed to decrypt config data.'});
 
-		assert.strictEqual(fs.readFileSync(configPath, 'utf8'), JSON.stringify({a: 1}), 'the file was left as it is');
+		assert.strictEqual(fs.readFileSync(configPath, 'utf8'), toJsonLines({a: 1}), 'the file was left as it is');
 	});
 
 	// The other of the two: the error is this module's own, so a `deserialize` of the caller being there does not stop a file no key reads from being cleared the way a damaged one is.
 	it('still clears a file no key reads, whatever `deserialize` you gave', () => {
 		const cwd = createTempDirectory();
-		fs.writeFileSync(path.join(cwd, 'config.json'), 'a file no key reads');
+		fs.writeFileSync(path.join(cwd, 'config.jsonl'), 'a file no key reads');
 
 		const config = new Conf<Record<string, unknown>>({
 			cwd,
 			encryptionKey: 'k',
 			encryptionAlgorithm: 'aes-256-gcm',
 			clearInvalidConfig: true,
-			deserialize: text => JSON.parse(text) as Record<string, unknown>,
+			// A `deserialize` that reads what the default `serialize` writes, since the cleared store is written by it, and an empty store is an empty file.
+			deserialize: fromJsonLines,
 		});
 
 		assert.deepStrictEqual(config.store, createNullProtoObject({}));
@@ -379,23 +382,24 @@ describe('a `toJSON` a `deserialize` hands back with the store', () => {
 		const cwd = createTempDirectory();
 		const conf = new Conf<Record<string, any>>({
 			cwd,
-			deserialize: text => ({...JSON.parse(text) as Record<string, unknown>, toJSON: () => 'not a store'}),
+			deserialize: text => ({...fromJsonLines(text), toJSON: () => 'not a store'}),
 		});
 
 		conf.set('a', 1);
 		conf.set('b', 2);
-		assert.deepStrictEqual(readConfigFile(conf), {a: 1, b: 2});
+		// The text and not only the keys, since a line that is not an object, which is what a `toJSON` writes the store as, holds no key a read finds.
+		assert.strictEqual(fs.readFileSync(conf.path, 'utf8'), toJsonLines({a: 1, b: 2}));
 		assert.deepStrictEqual({...conf.store}, {a: 1, b: 2});
 	});
 
 	// A `toJSON` that is not a function is a key of the store the caller put there, and `JSON.stringify` writes it as itself, so it is left alone.
 	it('keeps a `toJSON` of the caller that is not a function', () => {
 		const cwd = createTempDirectory();
-		fs.writeFileSync(path.join(cwd, 'config.json'), JSON.stringify({toJSON: 'data'}));
+		fs.writeFileSync(path.join(cwd, 'config.jsonl'), toJsonLines({toJSON: 'data'}));
 
 		const conf = new Conf<Record<string, any>>({
 			cwd,
-			deserialize: text => JSON.parse(text) as Record<string, unknown>,
+			deserialize: fromJsonLines,
 		});
 		assert.strictEqual(conf.get('toJSON'), 'data');
 		conf.set('a', 1);
@@ -462,5 +466,79 @@ describe('a `serialize` of your own', () => {
 		assert.throws(() => {
 			conf.set('callback', () => 1);
 		}, {name: 'TypeError', message: /`function`/});
+	});
+});
+
+describe('the JSON Lines format', () => {
+	const storeIn = (cwd: string) => new Conf<Record<string, unknown>>({cwd});
+
+	it('writes one compact line per top-level key to `config.jsonl`', () => {
+		const cwd = createTempDirectory();
+		const conf = storeIn(cwd);
+		conf.set('a', 1);
+		conf.set('b', {c: true});
+
+		assert.strictEqual(conf.path, path.join(cwd, 'config.jsonl'));
+		assert.strictEqual(fs.readFileSync(conf.path, 'utf8'), '{"a":1}\n{"b":{"c":true}}\n');
+	});
+
+	it('takes a key from a later line over the same key on an earlier one', () => {
+		const cwd = createTempDirectory();
+		fs.writeFileSync(path.join(cwd, 'config.jsonl'), '{"a":1}\n{"a":2}\n');
+
+		assert.strictEqual(storeIn(cwd).get('a'), 2);
+	});
+
+	it('skips blank lines and takes CRLF line endings', () => {
+		const cwd = createTempDirectory();
+		fs.writeFileSync(path.join(cwd, 'config.jsonl'), '{"a":1}\r\n\r\n{"b":2}\r\n');
+
+		assert.deepStrictEqual(storeIn(cwd).store, createNullProtoObject({a: 1, b: 2}));
+	});
+
+	it('refuses a line that is not JSON without quoting it', () => {
+		const cwd = createTempDirectory();
+		fs.writeFileSync(path.join(cwd, 'config.jsonl'), '{"a":1}\n{"token": hunter2}\n');
+
+		assert.throws(() => {
+			storeIn(cwd);
+		}, (error: unknown) => {
+			assert.ok(error instanceof SyntaxError);
+			assert.match(error.message, /is not valid JSON Lines/);
+			assert.doesNotMatch(error.message, /hunter2|token/);
+			return true;
+		});
+	});
+
+	it('keeps a `__proto__` line as a key of the store and not its prototype', () => {
+		const cwd = createTempDirectory();
+		fs.writeFileSync(path.join(cwd, 'config.jsonl'), '{"__proto__":{"polluted":true}}\n');
+
+		const key = '__proto__';
+		const conf = storeIn(cwd);
+		assert.strictEqual(Object.getPrototypeOf(conf.store), null);
+		assert.ok(Object.hasOwn(conf.store, key));
+		assert.deepStrictEqual({...conf.store[key] as Record<string, unknown>}, {polluted: true});
+		assert.strictEqual((conf.store as {polluted?: unknown}).polluted, undefined);
+
+		// A write puts it back as the line it was read from, and a second store reads it again.
+		conf.set('b', 1);
+		const written = readConfigFile(conf);
+		assert.ok(Object.hasOwn(written, key));
+		assert.deepStrictEqual(written[key], {polluted: true});
+		assert.strictEqual(Object.getPrototypeOf(written), Object.prototype);
+
+		const reread = storeIn(cwd).store;
+		assert.strictEqual(Object.getPrototypeOf(reread), null);
+		assert.ok(Object.hasOwn(reread, key));
+		assert.strictEqual(reread.b, 1);
+		assert.strictEqual(Object.hasOwn(Object.prototype, 'polluted'), false);
+	});
+
+	it('reads an empty file as an empty store', () => {
+		const cwd = createTempDirectory();
+		fs.writeFileSync(path.join(cwd, 'config.jsonl'), '');
+
+		assert.deepStrictEqual(storeIn(cwd).store, createNullProtoObject({}));
 	});
 });

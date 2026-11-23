@@ -1536,19 +1536,41 @@ export default class Conf<T extends Record<string, any> = Record<string, unknown
 		};
 	}
 
-	// A text editor can save a file with a byte order mark, which is not part of the JSON. `JSON.parse` refuses it, while a JSON reader that takes a file is expected to skip it, so it is skipped here.
+	// The file is JSON Lines: one object per line, each holding one top-level key of the store. A blank line is skipped, a line that is JSON but not an object holds no key, like a file that is not a whole object is an empty store, and a later line wins for a key an earlier one also holds. A text editor can save a file with a byte order mark, which is not part of the JSON. `JSON.parse` refuses it, while a JSON reader that takes a file is expected to skip it, so it is skipped here.
 	#deserialize: Deserialize<T> = value => {
-		const text = value.replace(/^\uFEFF/, '');
+		const entries: Array<[string, unknown]> = [];
 
-		try {
-			return JSON.parse(text);
-		} catch {
-			// The error from `JSON.parse` quotes the part of the file around the failure, which is where a config file keeps whatever the caller did not mean to put in a log or a crash report, so what went wrong is reported as the file it is a part of.
-			throw new SyntaxError(`The config file \`${this.path}\` is not valid JSON.`);
+		for (const line of value.replace(/^\uFEFF/, '').split('\n')) {
+			if (line.trim() === '') {
+				continue;
+			}
+
+			let item: unknown;
+			try {
+				item = JSON.parse(line);
+			} catch {
+				// The error from `JSON.parse` quotes the part of the file around the failure, which is where a config file keeps whatever the caller did not mean to put in a log or a crash report, so what went wrong is reported as the file it is a part of.
+				throw new SyntaxError(`The config file \`${this.path}\` is not valid JSON Lines.`);
+			}
+
+			if (item !== null && typeof item === 'object' && !Array.isArray(item)) {
+				// A loop rather than a spread, since a hand-written line can hold more keys than a call takes arguments.
+				for (const entry of Object.entries(item)) {
+					entries.push(entry);
+				}
+			}
 		}
+
+		// `Object.fromEntries()` defines each key as its own, so a `__proto__` line is a key of the store rather than its prototype.
+		return Object.fromEntries(entries) as T;
 	};
 
-	#serialize: Serialize<T> = value => JSON.stringify(value, undefined, '\t');
+	// A key whose value JSON writes as nothing, such as a function, is left out, like `JSON.stringify` leaves it out of an object.
+	#serialize: Serialize<T> = value => Object.entries(value as Record<string, unknown>)
+		.map(([key, item]) => JSON.stringify({[key]: item}))
+		.filter(line => line !== '{}')
+		.map(line => `${line}\n`)
+		.join('');
 
 	#validate(store: T): void {
 		if (!this.#validator) {
@@ -2016,7 +2038,7 @@ export default class Conf<T extends Record<string, any> = Record<string, unknown
 		const options: Partial<Options<T>> = {
 			...definedOptions,
 			configName: definedOptions.configName ?? 'config',
-			fileExtension: definedOptions.fileExtension ?? 'json',
+			fileExtension: definedOptions.fileExtension ?? 'jsonl',
 			projectSuffix: definedOptions.projectSuffix ?? 'nodejs',
 			clearInvalidConfig: definedOptions.clearInvalidConfig ?? false,
 			accessPropertiesByDotNotation: definedOptions.accessPropertiesByDotNotation ?? true,
