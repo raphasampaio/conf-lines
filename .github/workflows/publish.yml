@@ -1,0 +1,46 @@
+name: Publish
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  publish:
+    name: Publish to npm
+    runs-on: ubuntu-latest
+    environment: npm
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          registry-url: "https://registry.npmjs.org"
+          # No package-lock.json (`.npmrc` turns it off), so setup-node's default caching would fail.
+          package-manager-cache: false
+
+      - name: Ensure npm supports Trusted Publishing
+        run: npm install -g npm@latest
+
+      - run: npm install
+      - run: npm test
+
+      - name: Resolve version
+        run: echo "VERSION=$(node -p "require('./package.json').version")" >> "$GITHUB_ENV"
+
+      - name: Publish to npm (Trusted Publishing / OIDC)
+        run: |
+          if npm view "conf-lines@$VERSION" version >/dev/null 2>&1; then
+            echo "conf-lines@$VERSION already published; skipping"
+          else
+            # Verbose: the OIDC token exchange result is only logged at this level.
+            npm publish --loglevel verbose
+          fi
+
+      - name: Tag and GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release view "v$VERSION" >/dev/null 2>&1 || gh release create "v$VERSION" --target "$GITHUB_SHA" --generate-notes
