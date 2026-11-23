@@ -10,8 +10,8 @@ type Person = {name: string};
 
 const fileOf = (config: ConfLines<any>): string => fs.readFileSync(config.path, 'utf8');
 
-const withRecords = (...names: string[]): ConfLines<Record<number, Person>> => {
-	const config = new ConfLines<Record<number, Person>>({cwd: temporaryDirectory()});
+const withRecords = (...names: string[]): ConfLines<Person> => {
+	const config = new ConfLines<Person>({cwd: temporaryDirectory()});
 	for (const name of names) {
 		config.set(config.size, {name});
 	}
@@ -33,9 +33,9 @@ describe('the file', () => {
 		config.set(2, null);
 		assert.equal(fileOf(config), '"text"\n[1,2]\nnull\n');
 		assert.equal(config.get(2), null);
-		assert.equal(config.has('1.0'), true);
-		config.delete('1.0');
-		assert.deepEqual(config.get(1), [2]);
+		assert.equal(config.get('1.0'), 1);
+		config.set('1.0', 9);
+		assert.deepEqual(config.get(1), [9, 2]);
 	});
 
 	it('yields each record with its index as a number', () => {
@@ -43,10 +43,19 @@ describe('the file', () => {
 		assert.deepEqual([...config], [[0, {name: 'alice'}], [1, {name: 'bob'}]]);
 	});
 
+	it('is the records as an array, and writes an array assigned to it as the lines', () => {
+		const config = withRecords('alice', 'bob');
+		assert.deepEqual(config.store, [{name: 'alice'}, {name: 'bob'}]);
+		config.store = [{name: 'carol'}];
+		assert.equal(fileOf(config), '{"name":"carol"}\n');
+		config.clear();
+		assert.deepEqual(config.store, []);
+	});
+
 	it('reads a byte order mark, CRLF and blank lines', () => {
 		const cwd = temporaryDirectory();
 		fs.writeFileSync(path.join(cwd, 'config.jsonl'), '﻿{"name":"alice"}\r\n\r\n{"name":"bob"}\r\n');
-		const config = new ConfLines<Record<number, Person>>({cwd});
+		const config = new ConfLines<Person>({cwd});
 		assert.equal(config.get(1)?.name, 'bob');
 		assert.equal(config.size, 2);
 	});
@@ -79,7 +88,7 @@ describe('a line index', () => {
 
 	for (const cache of [false, true]) {
 		it(`moves the records after a deleted one up${cache ? ' with the cache' : ''}`, () => {
-			const config = new ConfLines<Record<number, Person>>({cwd: temporaryDirectory(), cache});
+			const config = new ConfLines<Person>({cwd: temporaryDirectory(), cache});
 			config.set({0: {name: 'alice'}, 1: {name: 'bob'}, 2: {name: 'carol'}});
 			assert.deepEqual(config.get(1), {name: 'bob'});
 			config.delete(1);

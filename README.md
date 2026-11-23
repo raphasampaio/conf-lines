@@ -43,12 +43,12 @@ console.log(config.get(0));
 
 Every option and method is [`conf`'s](https://github.com/sindresorhus/conf#api), with these differences:
 
-- A key is a line index: a number such as `0`, or a string such as `'0'` or, with dot notation, `'0.name'`. A named key such as `'foo'` throws a `TypeError` when the store is written.
+- A key is a line index: a number such as `0`, or a string such as `'0'` or, with dot notation, `'0.name'`. A named key such as `'foo'` throws a `TypeError` when the store is written. In TypeScript, `new ConfLines<Note>()` types each record; a dot path is typed only for `.get()` and `.set()`.
 - `.delete(index)` removes the line, so the records after it move up one index. Setting an index past the end writes the record as the next line.
 - `fileExtension` defaults to `'jsonl'`. Blank lines and a leading byte order mark are skipped when reading.
 - The `migrations`, `beforeEachMigration` and `projectVersion` options are not available, since migrations keep their version under a named key.
 - `defaults` must give records at consecutive indexes from `0`, since a gap moves the later ones up.
-- `.store` is an object keyed by index (`{0: …, 1: …}`). Iterating the store yields `[index, record]` with the index as a number.
+- `.store` is the records as an array, and assigning an array to it writes them as the lines. Iterating the store yields `[index, record]` with the index as a number.
 
 To validate every record, use `rootSchema`:
 
