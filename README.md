@@ -54,15 +54,15 @@ To validate every record, use `rootSchema`:
 
 ```js
 const config = new ConfLines({
-	projectName: 'foo',
-	rootSchema: {
-		additionalProperties: {
-			type: 'object',
-			properties: {
-				name: {type: 'string'},
-			},
-			required: ['name'],
-		},
-	},
+  projectName: 'foo',
+  rootSchema: {
+    additionalProperties: {
+      type: 'object',
+      properties: {
+        name: {type: 'string'},
+      },
+      required: ['name'],
+    },
+  },
 });
 ```
